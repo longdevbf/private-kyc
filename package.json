@@ -1,0 +1,37 @@
+{
+  "name": "private-credential-lifecycle-engine",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Private credential lifecycle engine on Midnight (Buildathon Wave 1)",
+  "scripts": {
+    "build:contract": "compact compile contracts/src/credential.compact contracts/managed/credential",
+    "build:contract:fast": "compact compile --skip-zk contracts/src/credential.compact contracts/managed/credential",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "dev:chain": "tsx watch web/server.ts",
+    "dev:web": "vite --config web/vite.config.ts",
+    "dev": "concurrently -n chain,web -c cyan,magenta \"npm:dev:chain\" \"npm:dev:web\"",
+    "build:web": "vite build --config web/vite.config.ts"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/node": "^22.10.2",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.5",
+    "@vitejs/plugin-react": "^4.7.0",
+    "concurrently": "^10.0.5",
+    "tsx": "^4.23.12",
+    "typescript": "^5.7.2",
+    "vite": "^5.4.21",
+    "vitest": "^2.1.8"
+  },
+  "dependencies": {
+    "@midnight-ntwrk/compact-runtime": "^0.19.0",
+    "cors": "^2.8.6",
+    "express": "^5.2.1",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
+  }
+}

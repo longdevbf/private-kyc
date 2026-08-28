@@ -1,0 +1,951 @@
+/* =====================================================================
+   Credential Lifecycle Engine — depth layer
+   =====================================================================
+   Loaded after styles.css. Everything here adds dimension and motion and
+   carries no data of its own.
+
+   The two-hue rule from styles.css still holds. The ambient light sources
+   are the same amber and cyan at a fraction of their opacity, plus one
+   desaturated blue-grey that reads as ground rather than as a third
+   meaning.
+
+   Motion is used in exactly four places and each one is doing a job:
+
+     the Merkle fold    shows an operation the circuit actually performs
+     the circuit trace  shows the order assertions are enforced in
+     the dial           shows a per-byte comparison, one tick per byte
+     the card           gives the credential a front and a back, which is
+                        the argument of the project in one gesture
+
+   Nothing else loops except the ambient, which is slow enough to sit
+   below notice. All of it stops under prefers-reduced-motion.
+   ===================================================================== */
+
+/* ============================================================= ambient */
+
+.ambient {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.amb-glow {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(96px);
+  will-change: transform;
+}
+.amb-glow.pv {
+  width: 42vw; height: 34vw; min-width: 460px; min-height: 380px;
+  left: 4%; top: -16%;
+  background: radial-gradient(circle, rgba(245,181,82,.34), transparent 66%);
+  animation: drift-a 38s ease-in-out infinite;
+}
+.amb-glow.pb {
+  width: 46vw; height: 36vw; min-width: 500px; min-height: 400px;
+  right: 2%; top: 2%;
+  background: radial-gradient(circle, rgba(99,207,230,.30), transparent 66%);
+  animation: drift-b 46s ease-in-out infinite;
+}
+.amb-glow.dp {
+  width: 60vw; height: 40vw; min-width: 620px; min-height: 420px;
+  left: 26%; bottom: -26%;
+  background: radial-gradient(circle, rgba(64,92,150,.42), transparent 70%);
+  animation: drift-c 58s ease-in-out infinite;
+}
+@keyframes drift-a {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  50%      { transform: translate3d(7vw, 4vh, 0) scale(1.12); }
+}
+@keyframes drift-b {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1.06); }
+  50%      { transform: translate3d(-6vw, 6vh, 0) scale(.94); }
+}
+@keyframes drift-c {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  50%      { transform: translate3d(-4vw, -5vh, 0) scale(1.1); }
+}
+
+/* A grid receding to a horizon. Depth cue only, not a chart. */
+.amb-floor {
+  position: absolute;
+  left: -30%; right: -30%; bottom: -4%;
+  height: 58%;
+  perspective: 240px;
+  perspective-origin: 50% 0%;
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, #000 34%, transparent 94%);
+          mask-image: linear-gradient(to bottom, transparent 0%, #000 34%, transparent 94%);
+}
+.amb-grid {
+  position: absolute;
+  inset: 0;
+  transform: rotateX(74deg);
+  background-image:
+    linear-gradient(rgba(99,207,230,.16) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(99,207,230,.10) 1px, transparent 1px);
+  background-size: 64px 64px;
+  animation: floor 14s linear infinite;
+}
+@keyframes floor { to { background-position: 0 64px, 0 0; } }
+
+/* One slow specular pass across the whole surface. */
+.amb-beam {
+  position: absolute;
+  inset: -50%;
+  background: linear-gradient(104deg, transparent 43%, rgba(255,255,255,.04) 50%, transparent 57%);
+  animation: beam 19s ease-in-out infinite;
+}
+@keyframes beam {
+  0%, 100% { transform: translate3d(-24%, 0, 0); }
+  50%      { transform: translate3d(24%, 0, 0); }
+}
+
+/* Film grain, so the large flat areas are never quite dead. */
+.amb-grain {
+  position: absolute;
+  inset: 0;
+  opacity: .07;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='3' stitchTiles='stitch'/></filter><rect width='160' height='160' filter='url(%23n)'/></svg>");
+}
+
+.amb-vignette {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(120% 90% at 50% 12%, transparent 42%, rgba(5,8,14,.74) 100%);
+}
+
+/* ------------------------------------------ letting the depth through */
+
+.shell { position: relative; z-index: 1; }
+.boot  { position: relative; z-index: 1; }
+
+.nav, .inspector {
+  background: rgba(14,19,30,.78);
+  -webkit-backdrop-filter: blur(18px) saturate(120%);
+          backdrop-filter: blur(18px) saturate(120%);
+}
+.topbar {
+  background: rgba(10,14,23,.72);
+  -webkit-backdrop-filter: blur(18px) saturate(120%);
+          backdrop-filter: blur(18px) saturate(120%);
+}
+.panel, .linkage-hero {
+  background-color: rgba(20,26,39,.72);
+  -webkit-backdrop-filter: blur(12px);
+          backdrop-filter: blur(12px);
+  transition: border-color 220ms ease, box-shadow 220ms ease;
+}
+.panel:hover {
+  border-color: var(--line-strong);
+  box-shadow: var(--shadow), var(--lift), 0 0 0 1px rgba(255,255,255,.02);
+}
+
+/* A hairline of the private hue down the left edge on hover, so a column
+   of panels reads as one instrument rather than as loose cards. */
+.panel { position: relative; overflow: hidden; }
+.panel::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 12px; bottom: 12px;
+  width: 1px;
+  background: linear-gradient(180deg, transparent, rgba(245,181,82,.40), transparent);
+  opacity: 0;
+  transition: opacity 240ms ease;
+}
+.panel:hover::before { opacity: 1; }
+
+/* ------------------------------------------------------------ arrival */
+
+@keyframes rise {
+  from { opacity: 0; transform: translate3d(0, 14px, 0); }
+  to   { opacity: 1; transform: none; }
+}
+/* `.work` is a flex column, so its children shrink once the page is taller
+   than the viewport. That was invisible while panels overflowed visibly;
+   with `overflow: hidden` on .panel it clips content instead. Opt out. */
+.work > * { flex: 0 0 auto; }
+
+.work > * { animation: rise .55s cubic-bezier(.16, 1, .3, 1) backwards; }
+.work > *:nth-child(1) { animation-delay: .03s; }
+.work > *:nth-child(2) { animation-delay: .09s; }
+.work > *:nth-child(3) { animation-delay: .15s; }
+.work > *:nth-child(4) { animation-delay: .21s; }
+.work > *:nth-child(5) { animation-delay: .27s; }
+
+.reg { animation: rise .5s cubic-bezier(.16, 1, .3, 1) backwards .12s; }
+.outcome { animation: rise 340ms cubic-bezier(.16, 1, .3, 1); }
+
+/* --------------------------------------------------------- nav polish */
+
+.nav-item { position: relative; overflow: hidden; }
+.nav-item[aria-selected='true'] {
+  background: linear-gradient(90deg, rgba(245,181,82,.13), rgba(245,181,82,.03) 60%, transparent);
+}
+.nav-item[aria-selected='true']::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 6px; bottom: 6px;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--pv);
+  box-shadow: 0 0 12px rgba(245,181,82,.75);
+  animation: barIn 320ms cubic-bezier(.16, 1, .3, 1);
+}
+@keyframes barIn { from { transform: scaleY(0); } to { transform: scaleY(1); } }
+
+.nav-item .tail {
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--g-3);
+  border: 1px solid var(--line-strong);
+}
+
+.brand-mark { position: relative; overflow: hidden; }
+.brand-mark::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(100deg, transparent 35%, rgba(255,255,255,.55) 50%, transparent 65%);
+  transform: translateX(-130%);
+  animation: shimmer 6.5s ease-in-out infinite;
+}
+@keyframes shimmer {
+  0%, 62%   { transform: translateX(-130%); }
+  78%, 100% { transform: translateX(130%); }
+}
+
+.pulse { animation: ping 2.6s ease-out infinite; }
+@keyframes ping {
+  0%   { box-shadow: 0 0 0 0 rgba(70,205,147,.5); }
+  70%  { box-shadow: 0 0 0 7px rgba(70,205,147,0); }
+  100% { box-shadow: 0 0 0 0 rgba(70,205,147,0); }
+}
+
+.netcard { position: relative; overflow: hidden; }
+.netcard::after {
+  content: '';
+  position: absolute;
+  left: -1px; right: -1px; top: -1px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--pb), transparent);
+  opacity: .5;
+}
+
+/* ------------------------------------------------------ button polish */
+
+.btn { position: relative; overflow: hidden; }
+.btn.primary::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(100deg, transparent 34%, rgba(255,255,255,.5) 50%, transparent 66%);
+  transform: translateX(-130%);
+  pointer-events: none;
+}
+.btn.primary:hover:not(:disabled)::after { animation: sweepx 780ms ease; }
+@keyframes sweepx { to { transform: translateX(130%); } }
+.btn.primary:hover:not(:disabled) { box-shadow: 0 6px 22px -8px rgba(245,181,82,.65); }
+.btn.primary:active:not(:disabled) { transform: translateY(1px) scale(.99); }
+
+.counter { font-variant-numeric: tabular-nums; }
+
+/* =====================================================================
+   THE CREDENTIAL, AS AN OBJECT
+   =====================================================================
+   Card ratio ID-1 (1.586), the same as a bank card, because the point of
+   the front face is that it looks like something a person keeps. The back
+   is the only thing the chain ever sees.
+   ===================================================================== */
+
+.cc-stage {
+  width: 100%;
+  perspective: 1500px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  align-items: flex-start;
+}
+
+.cc {
+  --rx: 0deg; --ry: 0deg; --mx: 50%; --my: 0%;
+  position: relative;
+  width: min(474px, 100%);
+  aspect-ratio: 1.586;
+  transform-style: preserve-3d;
+  transform: rotateX(var(--rx)) rotateY(var(--ry));
+  transition: transform 620ms cubic-bezier(.2, .85, .25, 1);
+  will-change: transform;
+}
+.cc.is-flipped { transform: rotateX(var(--rx)) rotateY(calc(var(--ry) + 180deg)); }
+
+.cc-face {
+  position: absolute;
+  inset: 0;
+  border-radius: 16px;
+  padding: 19px 22px 17px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  -webkit-backface-visibility: hidden;
+          backface-visibility: hidden;
+}
+
+.cc-front {
+  color: var(--pv-ink);
+  border: 1px solid var(--pv-line);
+  background:
+    radial-gradient(120% 90% at 8% 0%, rgba(245,181,82,.2), transparent 58%),
+    linear-gradient(152deg, #2e2211 0%, #1c1610 48%, #100e0c 100%);
+  box-shadow:
+    0 34px 70px -34px rgba(0,0,0,.95),
+    inset 0 1px 0 rgba(255,255,255,.05);
+}
+.cc-back {
+  transform: rotateY(180deg);
+  color: var(--pb-ink);
+  border: 1px solid var(--pb-line);
+  background:
+    radial-gradient(120% 90% at 92% 0%, rgba(99,207,230,.17), transparent 58%),
+    linear-gradient(152deg, #0f2129 0%, #0c171d 50%, #090f14 100%);
+  box-shadow:
+    0 34px 70px -34px rgba(0,0,0,.95),
+    inset 0 1px 0 rgba(255,255,255,.05);
+}
+
+.cc-guilloche {
+  position: absolute;
+  inset: -8% -4%;
+  width: 108%;
+  height: 116%;
+  color: var(--pv);
+  opacity: .24;
+  pointer-events: none;
+}
+
+/* Specular highlight that follows the pointer. The tilt and the light
+   come from the same position, so the card reads as a real surface. */
+.cc-holo {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(460px circle at var(--mx) var(--my), rgba(255,255,255,.17), transparent 56%);
+  mix-blend-mode: screen;
+  pointer-events: none;
+}
+.cc-edge {
+  position: absolute;
+  inset: 0;
+  border-radius: 16px;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.10), inset 0 -1px 0 rgba(0,0,0,.5);
+  pointer-events: none;
+}
+
+.cc-top { display: flex; align-items: center; gap: 9px; position: relative; }
+.cc-crest {
+  width: 24px; height: 24px;
+  flex: 0 0 24px;
+  display: grid;
+  place-items: center;
+  border-radius: 6px;
+  color: var(--pv);
+  background: rgba(245,181,82,.15);
+  border: 1px solid var(--pv-line);
+}
+.cc-crest.pb { color: var(--pb); background: rgba(99,207,230,.14); border-color: var(--pb-line); }
+
+.cc-issuer { display: flex; flex-direction: column; line-height: 1.25; min-width: 0; }
+.cc-issuer b { font-size: 13.5px; font-weight: 600; }
+.cc-issuer i {
+  font-style: normal;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  opacity: .74;
+}
+.cc-mock {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: .16em;
+  padding: 3px 7px;
+  border-radius: 3px;
+  color: var(--pv);
+  border: 1px dashed var(--pv-line);
+  background: rgba(245,181,82,.09);
+}
+
+.cc-name {
+  margin-top: auto;
+  font-size: 30px;
+  font-weight: 600;
+  letter-spacing: -.02em;
+  text-transform: capitalize;
+  position: relative;
+  text-shadow: 0 1px 12px rgba(245,181,82,.3);
+}
+.cc-label {
+  position: relative;
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: .06em;
+  opacity: .78;
+  margin-bottom: 14px;
+}
+
+.cc-attrs {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+.cc-attrs.pb { grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 14px; }
+.cc-attrs.muted { display: block; font-family: var(--mono); font-size: 12px; opacity: .5; }
+.cc-attrs span { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.cc-attrs i {
+  font-style: normal;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: .13em;
+  text-transform: uppercase;
+  opacity: .7;
+}
+.cc-attrs b {
+  font-family: var(--mono);
+  font-size: 14px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.cc-foot {
+  position: relative;
+  margin-top: 14px;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+}
+.cc-chip {
+  width: 30px; height: 23px;
+  flex: 0 0 30px;
+  fill: none;
+  stroke: rgba(245,181,82,.6);
+  stroke-width: 1;
+  filter: drop-shadow(0 0 6px rgba(245,181,82,.35));
+}
+.cc-chip rect { fill: rgba(245,181,82,.14); }
+.cc-strip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: .11em;
+  text-transform: uppercase;
+  color: var(--pv);
+  opacity: .88;
+}
+
+.cc-stamp {
+  position: absolute;
+  right: 16px; top: 40%;
+  font-family: var(--mono);
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: .22em;
+  color: var(--bad);
+  border: 2px solid var(--bad);
+  border-radius: 4px;
+  padding: 4px 12px;
+  transform: rotate(-11deg);
+  opacity: .82;
+}
+.cc.is-revoked .cc-front { filter: saturate(.4); }
+
+.cc-mag {
+  position: absolute;
+  left: 0; right: 0; top: 0;
+  height: 34px;
+  background: linear-gradient(180deg, rgba(0,0,0,.65), rgba(0,0,0,.35));
+  border-bottom: 1px solid rgba(255,255,255,.05);
+}
+.cc-back .cc-top { margin-top: 26px; }
+
+.cc-hex { margin-top: 16px; display: flex; flex-direction: column; gap: 6px; }
+.cc-hex-k {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  opacity: .7;
+}
+.cc-hex-v { display: flex; flex-wrap: wrap; gap: 4px 8px; }
+.cc-hex-v em {
+  font-style: normal;
+  font-family: var(--mono);
+  font-size: 13.5px;
+  letter-spacing: .04em;
+  color: var(--pb);
+}
+.cc-note { margin: auto 0 0; font-size: 12.5px; line-height: 1.6; opacity: .8; }
+
+.cc-turn {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--dim);
+  background: transparent;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  padding: 7px 13px;
+  cursor: pointer;
+  transition: color 140ms ease, border-color 140ms ease, background 140ms ease;
+}
+.cc-turn:hover { color: var(--ink); background: var(--g-2); border-color: #333c4a; }
+.cc-turn:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--pv-soft); border-color: var(--pv); }
+
+/* =====================================================================
+   THE FOLD
+   ===================================================================== */
+
+.mt { display: flex; flex-direction: column; gap: 12px; }
+.mt-bar { display: flex; align-items: center; gap: 12px; }
+.mt-cap {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.mt-cap b { color: var(--dim); font-weight: 500; }
+.mt-bar .btn { margin-left: auto; }
+
+.mt-stage { perspective: 1000px; perspective-origin: 50% 30%; }
+.mt-deck {
+  transform-style: preserve-3d;
+  transform: rotateX(8deg);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.mt-node {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 11px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: rgba(23,30,44,.78);
+  transform: translateZ(calc(var(--i) * -4px));
+  opacity: .52;
+  overflow: hidden;
+  transition: opacity 300ms ease, border-color 300ms ease, background 300ms ease, box-shadow 300ms ease;
+}
+.mt-node.lit { opacity: 1; }
+.mt-node.lit:not(.leaf):not(.root) { border-color: var(--line-strong); background: rgba(31,40,56,.88); }
+
+.mt-node.leaf {
+  border-color: var(--pv-line);
+  background: linear-gradient(90deg, rgba(245,181,82,.17), rgba(245,181,82,.04));
+  color: var(--pv-ink);
+}
+.mt-node.leaf.lit { box-shadow: 0 0 26px -8px rgba(245,181,82,.6); }
+.mt-node.root {
+  border-color: var(--pb-line);
+  background: linear-gradient(90deg, rgba(99,207,230,.16), rgba(99,207,230,.04));
+  color: var(--pb-ink);
+}
+.mt-node.root.lit { box-shadow: 0 0 30px -8px rgba(99,207,230,.65); }
+
+.mt-lvl {
+  width: 30px;
+  flex: 0 0 30px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: .13em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.mt-node.leaf .mt-lvl,
+.mt-node.root .mt-lvl { color: inherit; opacity: .82; }
+
+.mt-role { font-size: 13.5px; }
+
+.mt-dir {
+  width: 17px; height: 17px;
+  flex: 0 0 17px;
+  display: grid;
+  place-items: center;
+  border-radius: 3px;
+  border: 1px solid var(--line-strong);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--dim);
+  transition: color 260ms ease, border-color 260ms ease;
+}
+.mt-node.lit .mt-dir { border-color: var(--pv-line); color: var(--pv); }
+
+.mt-hash {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mt-node.leaf .mt-hash,
+.mt-node.root .mt-hash { color: inherit; }
+.mt-hash.void { color: #5c6879; font-style: italic; }
+
+/* The light that travels across each level as it folds. */
+.mt-spark {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(245,181,82,.24), transparent);
+  transform: translateX(-100%);
+  pointer-events: none;
+}
+.mt-node.lit .mt-spark { animation: spark 620ms cubic-bezier(.2, .7, .3, 1); }
+@keyframes spark { to { transform: translateX(100%); } }
+
+.mt-verdict {
+  padding: 10px 13px;
+  border-radius: var(--r-sm);
+  border: 1px solid transparent;
+  font-size: 14px;
+  line-height: 1.55;
+  opacity: 0;
+  transform: translateY(4px);
+  transition: opacity 340ms ease, transform 340ms ease;
+}
+.mt-verdict.shown { opacity: 1; transform: none; }
+.mt-verdict.ok  { color: var(--ok); background: var(--ok-soft); border-color: rgba(70,205,147,.28); }
+.mt-verdict.bad { color: var(--pv); background: var(--pv-soft); border-color: var(--pv-line); }
+
+/* =====================================================================
+   THE DIAL
+   ===================================================================== */
+
+.dial {
+  position: relative;
+  width: 196px; height: 196px;
+  display: grid;
+  place-items: center;
+}
+.dial-svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.dial-track { fill: none; stroke: rgba(255,255,255,.08); stroke-width: 1; }
+.dial-sweep {
+  fill: none;
+  stroke: var(--ok);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-dasharray: 26 300;
+  opacity: .5;
+  transform-origin: 64px 64px;
+  animation: sweep-ring 4.5s linear infinite;
+}
+@keyframes sweep-ring { to { transform: rotate(360deg); } }
+.dial.alarm .dial-sweep { stroke: var(--bad); }
+
+.dial-tick {
+  stroke: rgba(255,255,255,.2);
+  stroke-width: 2;
+  stroke-linecap: round;
+  animation: tickIn 420ms cubic-bezier(.16, 1, .3, 1) backwards;
+  animation-delay: calc(var(--i) * 18ms);
+}
+.dial-tick.on { stroke: var(--bad); filter: drop-shadow(0 0 5px rgba(239,122,92,.85)); }
+@keyframes tickIn { from { opacity: 0; } to { opacity: 1; } }
+
+.dial-core { display: flex; flex-direction: column; align-items: center; gap: 5px; }
+.dial-num {
+  font-family: var(--mono);
+  font-size: 46px;
+  font-weight: 500;
+  line-height: 1;
+  color: var(--ok);
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 0 24px rgba(70,205,147,.4);
+}
+.dial.alarm .dial-num { color: var(--bad); text-shadow: 0 0 24px rgba(239,122,92,.5); }
+.dial-den {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: .15em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.dial-verdict {
+  position: absolute;
+  bottom: -20px;
+  white-space: nowrap;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  letter-spacing: .17em;
+  text-transform: uppercase;
+  color: var(--ok);
+}
+.dial.alarm .dial-verdict { color: var(--bad); }
+
+.lk-mid { gap: 14px; }
+.lk-mid .dial { margin: 2px 0 28px; }
+
+/* The dial is taller than a verifier's header plus its byte grid, so the
+   side columns get spare room. Centre the grid in it rather than leaving
+   the gap under the bytes, where it reads as something failing to load. */
+.lk-side .bytes { margin-top: auto; margin-bottom: auto; }
+.byte { padding: 9px 0; font-size: 13px; }
+
+/* ---------------------------------------------------- byte grid, live */
+
+.bytes { perspective: 500px; }
+.byte {
+  animation: byteIn 360ms cubic-bezier(.16, 1, .3, 1) backwards;
+  animation-delay: calc(var(--i, 0) * 9ms);
+  transition: background 200ms ease, color 200ms ease, border-color 200ms ease;
+}
+@keyframes byteIn {
+  from { opacity: 0; transform: translateY(-5px) rotateX(-70deg); }
+  to   { opacity: 1; transform: none; }
+}
+.byte.match {
+  animation:
+    byteIn 360ms cubic-bezier(.16, 1, .3, 1) backwards,
+    matchPulse 1.6s ease-in-out 400ms infinite;
+}
+@keyframes matchPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(239,122,92,0); }
+  50%      { box-shadow: 0 0 10px 0 rgba(239,122,92,.55); }
+}
+
+/* =====================================================================
+   THE TRACE
+   ===================================================================== */
+
+.trace {
+  margin-top: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: rgba(13,18,28,.66);
+  overflow: hidden;
+}
+.trace.ok  { border-color: rgba(70,205,147,.24); }
+.trace.bad { border-color: rgba(239,122,92,.26); }
+
+.trace-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 13px 18px;
+  border-bottom: 1px solid var(--line);
+}
+.trace-title {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.trace-ms {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--faint);
+}
+
+.trace-list { list-style: none; margin: 0; padding: 6px 0; }
+.trace-row {
+  display: flex;
+  align-items: baseline;
+  gap: 13px;
+  padding: 7px 18px;
+  font-size: 14px;
+  opacity: .45;
+  transition: opacity 240ms ease;
+}
+.trace-row.pass,
+.trace-row.fail,
+.trace-row.live { opacity: 1; }
+
+.trace-dot {
+  width: 6px; height: 6px;
+  flex: 0 0 6px;
+  border-radius: 50%;
+  background: var(--faint);
+  transition: background 200ms ease, box-shadow 200ms ease;
+}
+.trace-row.pass .trace-dot { background: var(--ok);  box-shadow: 0 0 8px rgba(70,205,147,.7); }
+.trace-row.fail .trace-dot { background: var(--bad); box-shadow: 0 0 8px rgba(239,122,92,.8); }
+.trace-row.live .trace-dot { background: var(--pv);  animation: ping-dot 700ms ease-out infinite; }
+@keyframes ping-dot {
+  0%   { box-shadow: 0 0 0 0 rgba(245,181,82,.65); }
+  100% { box-shadow: 0 0 0 8px rgba(245,181,82,0); }
+}
+
+.trace-name {
+  width: 168px;
+  flex: 0 0 168px;
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--ink);
+}
+.trace-row.fail .trace-name { color: var(--bad); }
+.trace-why { font-size: 13.5px; color: var(--faint); }
+
+@media (max-width: 640px) {
+  .trace-row { flex-wrap: wrap; }
+  .trace-name { width: auto; flex: 0 0 auto; }
+}
+
+
+/* =====================================================================
+   HEADROOM
+   =====================================================================
+   Added after the first review: the type was too small to read
+   comfortably and the ground was neutral black, which made every
+   surface above it look like a hole rather than a panel. The scale
+   moved up a step across the board; these are the consequences of that.
+   ===================================================================== */
+
+/* A lit edge along the top of the app. The only place either hue is
+   allowed to appear without standing for a value, and the thing that
+   stops the header reading as a black bar. */
+.shell::before {
+  content: '';
+  position: fixed;
+  left: 0; right: 0; top: 0;
+  height: 1px;
+  z-index: 3;
+  background: linear-gradient(90deg,
+    transparent 0%, var(--pv) 18%, rgba(255,255,255,.55) 50%, var(--pb) 82%, transparent 100%);
+  opacity: .55;
+}
+
+/* Panels need to sit ON the ground, not be cut out of it: a lit top
+   edge and a real shadow do more for perceived quality than any amount
+   of border tuning. */
+.panel, .linkage-hero {
+  box-shadow:
+    var(--shadow),
+    inset 0 1px 0 rgba(255,255,255,.055),
+    0 0 0 1px rgba(255,255,255,.014);
+}
+
+.panel-head h2, .section-head h2 { letter-spacing: -0.018em; }
+.panel-head p { color: var(--dim); }
+
+/* Table headers and mono labels were the worst offenders for legibility:
+   small, uppercase, wide-tracked and quiet all at once. Keep the
+   treatment, drop the quiet. */
+table.t th, .nav-label, .reg-head, .trace-title, .mt-cap,
+.lk-readout .lbl, .field > label, .topbar .crumb {
+  color: var(--dim);
+}
+table.t th { background: rgba(255,255,255,.022); }
+
+.stat, .chip, .mockchip { font-size: 12.5px; }
+.stat { padding: 7px 12px; }
+
+.footnote { font-size: 13px; line-height: 1.7; color: var(--faint); }
+.hint { font-size: 13.5px; line-height: 1.65; }
+
+/* Inputs read as fields, not as painted rectangles. */
+input, select {
+  background-color: rgba(8,12,20,.55);
+  border-color: var(--line-strong);
+}
+input:hover, select:hover { border-color: #3d4b63; }
+
+.cc-name { font-size: 32px; }
+
+/* The card is 474px wide inside a panel that is far wider. Rather than
+   leave the remainder empty, the space carries the reading of the two
+   faces -- which is the one thing a viewer needs in order to know what
+   turning the card actually demonstrated. */
+.panel-body.two-up {
+  display: grid;
+  /* A definite track, not `auto`: the card sizes itself with
+     `min(474px, 100%)`, and a percentage against an auto track is
+     circular, so the column collapses to min-content. */
+  grid-template-columns: 474px minmax(0, 1fr);
+  gap: 34px;
+  align-items: start;
+}
+@media (max-width: 1240px) {
+  .panel-body.two-up { grid-template-columns: minmax(0, 1fr); gap: 26px; }
+}
+
+.faces { display: flex; flex-direction: column; gap: 18px; padding-top: 2px; }
+
+.face-note {
+  position: relative;
+  padding-left: 16px;
+  border-left: 2px solid var(--line-strong);
+}
+.face-note.pv { border-left-color: var(--pv); }
+.face-note.pb { border-left-color: var(--pb); }
+
+.face-k {
+  display: block;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: var(--faint);
+  margin-bottom: 6px;
+}
+.face-note.pv .face-k { color: var(--pv); }
+.face-note.pb .face-k { color: var(--pb); }
+
+.face-note p {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.65;
+  color: var(--dim);
+  max-width: 52ch;
+}
+
+/* -------------------------------------------------------- nav legend */
+
+.legend { display: flex; flex-direction: column; gap: 12px; margin-bottom: 4px; }
+.legend .nav-label { margin-bottom: 2px; }
+
+.legend-row {
+  display: grid;
+  grid-template-columns: 9px minmax(0, 1fr);
+  grid-template-areas:
+    'swatch term'
+    '.      gloss';
+  gap: 1px 10px;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.legend-row b { grid-area: term; font-weight: 500; color: var(--ink); }
+.legend-row span:last-child { grid-area: gloss; color: var(--faint); font-size: 11.5px; }
+
+.swatch {
+  grid-area: swatch;
+  width: 9px; height: 9px;
+  border-radius: 2px;
+  align-self: center;
+}
+.swatch.pv { background: var(--pv); box-shadow: 0 0 9px rgba(245,181,82,.6); }
+.swatch.pb { background: var(--pb); box-shadow: 0 0 9px rgba(99,207,230,.6); }
+
+/* The rail ends with the ledger card; push the legend up against it so
+   the foot reads as one block instead of two floating fragments. */
+.nav-foot { gap: 16px; }
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+  .mt-node { opacity: 1; }
+  .mt-verdict { opacity: 1; transform: none; }
+}

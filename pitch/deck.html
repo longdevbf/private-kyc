@@ -1,0 +1,718 @@
+<title>Credential Lifecycle Engine</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+
+<style>
+/* ===================================================================
+   Deck inherits the demo's identity: two registers, one boundary.
+   PRIVATE stays dark in every theme -- its darkness is semantic, not
+   stylistic. Only the shell flips.
+   =================================================================== */
+
+:root {
+  /* shell -- light ground */
+  --bg:        #eef1f4;
+  --bg-2:      #e5e9ee;
+  --line:      #ccd4dc;
+  --ink:       #14171a;
+  --dim:       #5a6470;
+  --accent:    #2e5c8a;
+
+  /* private register -- semantic, constant across themes */
+  --pv-bg:     #17120c;
+  --pv-ink:    #f2e3c8;
+  --pv-dim:    #a89272;
+  --pv-accent: #e8a33d;
+
+  /* public register */
+  --pb-bg:     #ffffff;
+  --pb-ink:    #14171a;
+  --pb-dim:    #5a6470;
+  --pb-line:   #ccd4dc;
+
+  --ok:  #2f7d55;
+  --bad: #a8402a;
+
+  --mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --sans: 'IBM Plex Sans', system-ui, -apple-system, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg:     #0d0f12;
+    --bg-2:   #14181d;
+    --line:   #262b32;
+    --ink:    #e6e9ed;
+    --dim:    #8b939e;
+    --accent: #e8a33d;
+
+    --pb-bg:   #eef1f4;
+    --pb-ink:  #14171a;
+    --pb-dim:  #5a6470;
+    --pb-line: #c4ccd4;
+
+    --ok:  #3f9e6b;
+    --bad: #c4553d;
+  }
+}
+
+:root[data-theme="dark"] {
+  --bg:     #0d0f12;
+  --bg-2:   #14181d;
+  --line:   #262b32;
+  --ink:    #e6e9ed;
+  --dim:    #8b939e;
+  --accent: #e8a33d;
+
+  --pb-bg:   #eef1f4;
+  --pb-ink:  #14171a;
+  --pb-dim:  #5a6470;
+  --pb-line: #c4ccd4;
+
+  --ok:  #3f9e6b;
+  --bad: #c4553d;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 15px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ------------------------------------------------------------ chrome */
+
+.bar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 11px 22px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  flex-wrap: wrap;
+}
+.bar .name { font-weight: 600; }
+.bar .name em { font-style: normal; color: var(--pv-accent); }
+.bar .spacer { margin-left: auto; }
+
+.bar button {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink);
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  padding: 5px 11px;
+  cursor: pointer;
+}
+.bar button:hover { border-color: var(--pv-accent); color: var(--pv-accent); }
+.bar button:focus-visible { outline: 2px solid var(--pv-accent); outline-offset: 2px; }
+
+/* ------------------------------------------------------------ slides */
+
+.deck { display: flex; flex-direction: column; }
+
+.slide {
+  min-height: calc(100vh - 44px);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 22px;
+  padding: 46px clamp(22px, 6vw, 92px) 54px;
+  border-bottom: 1px solid var(--line);
+}
+
+.eyebrow {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+/* Numbering earns its place here: a deck is a delivery sequence, and the
+   presenter needs to know where they are. */
+.eyebrow .n { color: var(--pv-accent); font-weight: 600; }
+
+h1 {
+  font-size: clamp(30px, 5.2vw, 58px);
+  line-height: 1.06;
+  letter-spacing: -0.015em;
+  margin: 0;
+  font-weight: 600;
+  text-wrap: balance;
+  max-width: 20ch;
+}
+
+h2 {
+  font-size: clamp(23px, 3.4vw, 38px);
+  line-height: 1.14;
+  letter-spacing: -0.01em;
+  margin: 0;
+  font-weight: 600;
+  text-wrap: balance;
+  max-width: 24ch;
+}
+
+.lede {
+  font-family: var(--sans);
+  font-size: clamp(15px, 1.5vw, 18px);
+  line-height: 1.6;
+  color: var(--dim);
+  max-width: 62ch;
+  margin: 0;
+}
+
+.points { display: flex; flex-direction: column; gap: 14px; max-width: 74ch; }
+
+.point {
+  display: grid;
+  grid-template-columns: 15ch minmax(0, 1fr);
+  gap: 4px 20px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--line);
+}
+.point:last-child { border-bottom: 0; padding-bottom: 0; }
+.point dt {
+  font-size: 11.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--pv-accent);
+  padding-top: 2px;
+}
+.point dd {
+  margin: 0;
+  font-family: var(--sans);
+  font-size: 15px;
+  line-height: 1.55;
+}
+@media (max-width: 680px) { .point { grid-template-columns: 1fr; } }
+
+.big {
+  font-size: clamp(20px, 2.6vw, 27px);
+  line-height: 1.35;
+  max-width: 30ch;
+  font-weight: 500;
+}
+.big .quiet { color: var(--dim); }
+
+code, .code {
+  font-family: var(--mono);
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  padding: 1px 6px;
+  font-size: 0.92em;
+}
+
+/* --------------------------------------------------- the two registers */
+
+.registers {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  border: 1px solid var(--line);
+  max-width: 900px;
+  overflow: hidden;
+}
+@media (max-width: 780px) { .registers { grid-template-columns: 1fr; } }
+
+.reg { padding: 20px 22px 24px; }
+.reg h3 {
+  margin: 0 0 3px;
+  font-size: 10.5px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+.reg .where {
+  font-family: var(--sans);
+  font-size: 11.5px;
+  margin-bottom: 15px;
+  opacity: 0.7;
+}
+.reg ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; }
+.reg li { font-size: 12.5px; }
+
+.reg.private { background: var(--pv-bg); color: var(--pv-ink); }
+.reg.private h3 { color: var(--pv-accent); }
+.reg.public  { background: var(--pb-bg); color: var(--pb-ink); border-left: 1px solid var(--pb-line); }
+.reg.public h3 { color: var(--accent); }
+@media (max-width: 780px) { .reg.public { border-left: 0; border-top: 1px solid var(--pb-line); } }
+
+.boundary {
+  font-size: 11.5px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--dim);
+  max-width: 900px;
+}
+.boundary b { color: var(--pv-accent); font-weight: 600; }
+
+/* ------------------------------------------------ the byte comparison */
+
+.bytepair {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  gap: 0;
+  max-width: 940px;
+  border: 1px solid var(--line);
+}
+@media (max-width: 860px) { .bytepair { grid-template-columns: 1fr; } }
+
+.bside { padding: 16px 18px; }
+.bside + .gut + .bside { border-left: 1px solid var(--line); }
+@media (max-width: 860px) { .bside + .gut + .bside { border-left: 0; border-top: 1px solid var(--line); } }
+
+.bside h4 {
+  margin: 0 0 2px;
+  font-size: 10.5px;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+}
+.bside .asks { font-family: var(--sans); font-size: 11.5px; color: var(--dim); margin-bottom: 12px; }
+
+.bytes { display: grid; grid-template-columns: repeat(8, 1fr); gap: 2px; }
+.byte {
+  font-size: 10.5px;
+  text-align: center;
+  padding: 4px 0;
+  background: var(--bg-2);
+  color: var(--dim);
+  border: 1px solid transparent;
+  font-variant-numeric: tabular-nums;
+}
+
+.gut {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 14px;
+}
+.gut span {
+  writing-mode: vertical-rl;
+  font-size: 10px;
+  letter-spacing: 0.26em;
+  text-transform: uppercase;
+  color: var(--ok);
+}
+@media (max-width: 860px) {
+  .gut { padding: 10px; }
+  .gut span { writing-mode: horizontal-tb; }
+}
+
+.readout {
+  display: flex;
+  gap: 20px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--dim);
+  max-width: 940px;
+}
+.readout b { color: var(--ink); font-weight: 600; }
+
+/* ------------------------------------------------------------- tables */
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+  max-width: 780px;
+  font-size: 13.5px;
+}
+th {
+  text-align: left;
+  font-size: 10.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--dim);
+  font-weight: 500;
+  padding: 0 14px 8px 0;
+  border-bottom: 1px solid var(--line);
+}
+td { padding: 10px 14px 10px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+tr:last-child td { border-bottom: 0; }
+td.real   { color: var(--ok); }
+td.mocked { color: var(--bad); }
+
+/* -------------------------------------------------------------- notes */
+
+.notes {
+  border-left: 2px solid var(--pv-accent);
+  padding: 10px 0 10px 16px;
+  max-width: 68ch;
+  font-family: var(--sans);
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--dim);
+}
+.notes b { color: var(--ink); font-weight: 600; }
+body:not(.show-notes) .notes { display: none; }
+
+/* ------------------------------------------------------------ appendix */
+
+.appendix { background: var(--bg-2); }
+.appendix .ranked { counter-reset: r; display: flex; flex-direction: column; gap: 13px; max-width: 74ch; }
+.appendix .ranked li {
+  list-style: none;
+  display: grid;
+  grid-template-columns: 3ch 1fr;
+  gap: 14px;
+  font-family: var(--sans);
+  font-size: 14.5px;
+  line-height: 1.55;
+}
+.appendix .ranked li::before {
+  counter-increment: r;
+  content: counter(r);
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--pv-accent);
+  padding-top: 4px;
+}
+
+/* --------------------------------------------------------------- print */
+
+@media print {
+  .bar { display: none; }
+  body { background: #fff; color: #000; font-size: 11pt; }
+  .slide {
+    min-height: auto;
+    break-after: page;
+    page-break-after: always;
+    border-bottom: 0;
+    padding: 0 0 24pt;
+    justify-content: flex-start;
+  }
+  .slide:last-child { break-after: auto; page-break-after: auto; }
+  .notes { display: block !important; }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .bar button { transition: color 130ms ease, border-color 130ms ease; }
+}
+</style>
+
+<header class="bar">
+  <span class="name">Credential <em>Lifecycle</em> Engine</span>
+  <span>Midnight Buildathon · Wave 1</span>
+  <span class="spacer"></span>
+  <button id="notes-toggle" type="button" aria-pressed="false">Speaker notes</button>
+  <button id="print" type="button">Print / PDF</button>
+</header>
+
+<main class="deck">
+
+  <!-- 1 ------------------------------------------------------------- -->
+  <section class="slide">
+    <div class="eyebrow"><span class="n">01</span><span>Title</span></div>
+    <h1>Private Credential Lifecycle Engine</h1>
+    <p class="lede">
+      Issuance, per-verifier unlinkability, revocation and expiry — written in
+      Compact on Midnight. KYC is the demo sitting on top, not the contribution.
+    </p>
+    <p class="big"><span class="quiet">The issuer is mocked.</span> The lifecycle is real.</p>
+    <div class="notes">
+      Put the scope caveat on the title slide. A judge who has seen twenty
+      zk-KYC demos is watching for overclaiming — disarming it in the first
+      five seconds buys you the rest of the deck.
+    </div>
+  </section>
+
+  <!-- 2 ------------------------------------------------------------- -->
+  <section class="slide">
+    <div class="eyebrow"><span class="n">02</span><span>Problem</span></div>
+    <h2>Ten platforms. Ten copies of your ID.</h2>
+    <p class="big">
+      Every one of them needed <span class="quiet">one bit</span> — not a document.
+    </p>
+    <p class="lede">
+      And a credential you cannot revoke is worse than no credential at all.
+    </p>
+    <div class="notes">
+      Two ideas, no more. First the disclosure problem, which is well
+      understood. Then the one that isn't: the <b>day-two problem</b> —
+      revocation, expiry, and verifiers who can collude.
+    </div>
+  </section>
+
+  <!-- 3 ------------------------------------------------------------- -->
+  <section class="slide">
+    <div class="eyebrow"><span class="n">03</span><span>The gap</span></div>
+    <h2>Where zk-KYC demos stop</h2>
+    <p class="lede"><code>prove(age &gt; 18)</code> — solved, repeatedly. Not solved:</p>
+    <dl class="points">
+      <div class="point">
+        <dt>Revoke</dt>
+        <dd>without publishing a list that leaks exactly who was revoked.</dd>
+      </div>
+      <div class="point">
+        <dt>Unlink</dt>
+        <dd>stop two verifiers discovering they served the same person.</dd>
+      </div>
+      <div class="point">
+        <dt>Expire</dt>
+        <dd>enforce a validity window inside the circuit, not in an API wrapper.</dd>
+      </div>
+    </dl>
+    <p class="big">This project is that layer.</p>
+    <div class="notes">
+      Be specific rather than dismissive. Predicate proofs genuinely are the
+      easy part — small circuits, well-documented pattern. The lifecycle is
+      where the design decisions bite, and it is the part every demo skips.
+    </div>
+  </section>
+
+  <!-- 4 ------------------------------------------------------------- -->
+  <section class="slide">
+    <div class="eyebrow"><span class="n">04</span><span>Architecture</span></div>
+    <h2>One boundary, enforced by the compiler</h2>
+    <div class="registers">
+      <div class="reg private">
+        <h3>Private</h3>
+        <div class="where">on the holder's device</div>
+        <ul>
+          <li>holder secret</li>
+          <li>birth date · country · tier · expiry</li>
+          <li>blinding factor</li>
+          <li>issuer signature</li>
+          <li>Merkle path</li>
+        </ul>
+      </div>
+      <div class="reg public">
+        <h3>Public</h3>
+        <div class="where">on chain, world-readable</div>
+        <ul>
+          <li>issuerKeys</li>
+          <li>activeCredentials (Merkle root)</li>
+          <li>spentNullifiers</li>
+          <li>leafIssuer</li>
+          <li>revocationEpoch</li>
+        </ul>
+      </div>
+    </div>
+    <p class="boundary">
+      Attribute values never cross. <b>disclose()</b> gates every crossing — and
+      the build fails without it.
+    </p>
+    <div class="notes">
+      The Compact compiler refuses to build if a witness-derived value reaches
+      public state without an explicit <code>disclose()</code>. All 18 sites in
+      this contract carry a comment justifying that specific crossing. This is
+      a <b>machine-checked</b> privacy boundary, not a code-review one.
+    </div>
+  </section>
+
+  <!-- 5 ------------------------------------------------------------- -->
+  <section class="slide">
+    <div class="eyebrow"><span class="n">05</span><span>The hard part</span></div>
+    <h2>Same person, two verifiers, no correlation</h2>
+    <p class="lede">
+      Real output from the running demo. Alpha asked one question, Beta asked a
+      different one. Each nullifier is <code>H(secret, verifierId, epoch)</code>.
+      A shared byte would light up.
+    </p>
+
+    <div class="bytepair">
+      <div class="bside">
+        <h4>Alpha Exchange</h4>
+        <div class="asks">saw · age &gt;= 18</div>
+        <div class="bytes" id="b-a"></div>
+      </div>
+      <div class="gut"><span>no correlation</span></div>
+      <div class="bside">
+        <h4>Beta Lending</h4>
+        <div class="asks">saw · kycTier &gt;= 2</div>
+        <div class="bytes" id="b-b"></div>
+      </div>
+    </div>
+
+    <div class="readout">
+      <span>bytes in common: <b id="common">0 of 32</b></span>
+      <span>expected by chance: <b>~0.13</b></span>
+      <span>verdict: <b id="verdict">unlinkable</b></span>
+    </div>
+
+    <div class="notes">
+      Take the third design point if there is time — it is the least obvious.
+      Comparing a private timestamp against block time forces you to disclose a
+      bound on it, and the compiler says so. The fix is a public
+      <code>asOf</code> pinned to a window around block time, with every
+      private comparison made against that instead.
+    </div>
+  </section>
+
+  <!-- 6 ------------------------------------------------------------- -->
+  <section class="slide">
+    <div class="eyebrow"><span class="n">06</span><span>Scope</span></div>
+    <h2>Real vs mocked</h2>
+    <table>
+      <thead><tr><th>Real</th><th>Mocked</th></tr></thead>
+      <tbody>
+        <tr><td class="real">Schnorr verified in-circuit</td><td class="mocked">Issuer identity assurance</td></tr>
+        <tr><td class="real">Per-verifier nullifiers</td><td>—</td></tr>
+        <tr><td class="real">Merkle membership, in-circuit</td><td>—</td></tr>
+        <tr><td class="real">Revocation and expiry</td><td>—</td></tr>
+        <tr><td class="real">54 tests on real circuits</td><td class="mocked">No proof generated; not on chain</td></tr>
+      </tbody>
+    </table>
+    <div class="notes">
+      Do not soften this. The demo runs the contract against an in-memory
+      ledger: circuits execute and every constraint is enforced, but the prover
+      is not invoked and nothing is on chain. Saying it plainly is worth more
+      than the marginal credit for glossing it.
+    </div>
+  </section>
+
+  <!-- 7 ------------------------------------------------------------- -->
+  <section class="slide">
+    <div class="eyebrow"><span class="n">07</span><span>Ecosystem</span></div>
+    <h2>The layer below the credential apps</h2>
+    <dl class="points">
+      <div class="point">
+        <dt>Midnames</dt>
+        <dd>DID and naming — could supply the holder identifier we derive today.</dd>
+      </div>
+      <div class="point">
+        <dt>Identus</dt>
+        <dd>Credential issuance — the natural replacement for our mock issuer.</dd>
+      </div>
+      <div class="point">
+        <dt>Triple Play</dt>
+        <dd>Compliance predicates — slot into our predicate module unchanged.</dd>
+      </div>
+    </dl>
+    <p class="big">None of them provide the lifecycle. That is the gap.</p>
+    <div class="notes">
+      Say <b>"designed to interoperate with"</b>, not "integrated with" — these
+      are design affinities, not shipped integrations, and a judge will ask.
+      Our predicate module is deliberately small and pluggable precisely so
+      richer compliance logic can sit on top without touching the core.
+    </div>
+  </section>
+
+  <!-- 8 ------------------------------------------------------------- -->
+  <section class="slide">
+    <div class="eyebrow"><span class="n">08</span><span>Roadmap</span></div>
+    <h2>What comes next</h2>
+    <dl class="points">
+      <div class="point">
+        <dt>Wave 2</dt>
+        <dd>Renewal · <b>verifier SDK</b> · Preprod deployment · batched revocation.</dd>
+      </div>
+      <div class="point">
+        <dt>Wave 3</dt>
+        <dd>Real issuer (Identus) · indexed Merkle tree · design-partner pilot.</dd>
+      </div>
+    </dl>
+    <p class="big">The SDK is the adoption path: <span class="quiet">integrate without reading the contract.</span></p>
+    <div class="notes">
+      The indexed Merkle tree is the honest end state — true non-membership
+      proofs, and it removes the path-refresh cost entirely. We did not attempt
+      it in Wave 1 because building one from scratch was too risky next to a
+      working active-set design.
+    </div>
+  </section>
+
+  <!-- appendix -------------------------------------------------------- -->
+  <section class="slide appendix">
+    <div class="eyebrow"><span>Appendix</span><span>Business viability · 60 seconds</span></div>
+    <h2>Who adopts this, in order of realism</h2>
+    <ol class="ranked">
+      <li><b>Other Midnight dApps needing gated access</b> — token sales, DAOs, regulated DeFi. They already need "is this user eligible" and already accept on-chain verification. Lowest integration cost, no compliance sign-off.</li>
+      <li><b>Regional exchanges</b> — genuine repeated-KYC pain and real cost per re-verification, but they need a real issuer first.</li>
+      <li><b>Regulated fintech</b> — largest need, longest sales cycle, hard requirements we do not meet yet.</li>
+    </ol>
+    <p class="lede">
+      <b>Why integrate rather than build it.</b> The predicate proof is a
+      weekend. The lifecycle is not — per-verifier nullifier derivation, an
+      accumulator whose revocation semantics actually hold, and the disclosure
+      analysis that keeps attributes off-chain. Our test suite caught a bug
+      where a bare <code>jubjubSchnorrVerify</code> call silently accepted
+      forged signatures. That is what a team rolling their own would hit.
+    </p>
+    <p class="big">
+      <span class="quiet">The blocker:</span> the mock issuer is what stands
+      between this and production.
+    </p>
+    <div class="notes">
+      Keep this to sixty seconds — it is 5% of the score and padding it looks
+      worse than being brief. The blocker is a partnership problem, not an
+      engineering one, which is why Wave 3 targets Identus rather than more
+      contract features.
+    </div>
+  </section>
+
+</main>
+
+<script>
+// Real nullifiers, captured from a demo run. Alpha asked age >= 18,
+// Beta asked kycTier >= 2 -- different questions, same holder.
+const A = 'fc01debb6d04debf762da241a9e50ecb538da1205f623fe672e8ac3bd21c55a8';
+const B = '5c5229ad4f0dbe80411c5f2bcabec77489eccaf61024794d2876944ab4aee26f';
+
+const split = (h) => h.match(/../g) || [];
+
+function paint(el, own, other) {
+  const mine = split(own), theirs = split(other);
+  el.replaceChildren(...mine.map((b, i) => {
+    const s = document.createElement('span');
+    s.className = 'byte' + (theirs[i] === b ? ' match' : '');
+    s.textContent = b;
+    return s;
+  }));
+}
+
+paint(document.getElementById('b-a'), A, B);
+paint(document.getElementById('b-b'), B, A);
+
+const shared = split(A).filter((b, i) => b === split(B)[i]).length;
+document.getElementById('common').textContent = shared + ' of 32';
+document.getElementById('verdict').textContent = shared >= 8 ? 'CORRELATED' : 'unlinkable';
+
+// Speaker notes, remembered per viewer.
+const body = document.body;
+const toggle = document.getElementById('notes-toggle');
+
+function setNotes(on) {
+  body.classList.toggle('show-notes', on);
+  toggle.setAttribute('aria-pressed', String(on));
+  try { localStorage.setItem('deck-notes', on ? '1' : '0'); } catch (e) { /* private mode */ }
+}
+
+let initial = false;
+try { initial = localStorage.getItem('deck-notes') === '1'; } catch (e) { /* ignore */ }
+setNotes(initial);
+
+toggle.addEventListener('click', () => setNotes(!body.classList.contains('show-notes')));
+document.getElementById('print').addEventListener('click', () => window.print());
+
+// Arrow-key navigation between slides.
+const slides = [...document.querySelectorAll('.slide')];
+document.addEventListener('keydown', (e) => {
+  if (e.target !== document.body) return;
+  const dir = e.key === 'ArrowDown' || e.key === 'PageDown' ? 1
+            : e.key === 'ArrowUp' || e.key === 'PageUp' ? -1 : 0;
+  if (!dir) return;
+  e.preventDefault();
+  const y = window.scrollY + 60;
+  const idx = slides.findIndex((s) => s.offsetTop > y);
+  const target = dir > 0
+    ? (idx === -1 ? slides.length - 1 : idx)
+    : Math.max(0, (idx === -1 ? slides.length : idx) - 2);
+  slides[Math.min(Math.max(target, 0), slides.length - 1)]
+    .scrollIntoView({ behavior: 'smooth', block: 'start' });
+});
+</script>

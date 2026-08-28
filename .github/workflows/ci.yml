@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install the Compact toolchain
+        run: |
+          curl --proto '=https' --tlsv1.2 -LsSf \
+            https://github.com/midnightntwrk/compact/releases/latest/download/compact-installer.sh | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Pin the compiler
+        run: compact update 0.34.0
+
+      - name: Report versions
+        run: |
+          compact --version
+          compact compile --version
+          compact compile --language-version
+
+      - run: npm ci
+
+      # --skip-zk keeps CI fast; proving keys are not needed to run the suite.
+      - name: Compile the contract
+        run: npm run build:contract:fast
+
+      - name: Run the test suite
+        run: npm test
+
+      - name: Build the demo UI
+        run: npm run build:web

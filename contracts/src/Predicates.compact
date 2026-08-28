@@ -1,0 +1,90 @@
+// =====================================================================
+// Predicate module
+// =====================================================================
+// Factored out so new predicates can be added without touching issuance,
+// revocation, nullifiers, or the Merkle logic. To add one: extend the
+// PredicateId enum and add a branch to evalPredicate. Nothing else changes.
+//
+// PRIVACY NOTE -- this is the important part of this file.
+// Every check here compares private attribute values against `asOf`, a
+// PUBLIC timestamp supplied by the caller. Comparison results feed an
+// assert; the operands never reach a public boundary, so no attribute value
+// and no bound on one is disclosed.
+//
+// This is deliberately NOT done with blockTimeGte(attrs.birthTimestamp + N).
+// That formulation looks natural and is a privacy hole: the argument to a
+// blockTime* call must be disclosed, and since N is public, disclosing
+// birthTimestamp + N reveals birthTimestamp exactly. The compiler catches
+// this (RESEARCH.md F.6). The `asOf` indirection avoids it entirely --
+// the caller proves `asOf` is recent using public values only, then all
+// private comparisons happen against `asOf`.
+// =====================================================================
+
+pragma language_version 0.26;
+
+export module Predicates {
+
+  import CompactStandardLibrary;
+
+  // Attribute values. NEVER written to ledger state.
+  export struct CredentialAttrs {
+    birthTimestamp: Uint<64>;   // unix ms
+    countryCode:    Uint<16>;   // ISO 3166-1 numeric
+    kycTier:        Uint<8>;
+    expiresAt:      Uint<64>;   // unix ms
+  }
+
+  export enum PredicateId {
+    AGE_AT_LEAST,      // threshold = minimum age, in milliseconds
+    TIER_AT_LEAST,     // threshold = minimum kycTier
+    COUNTRY_IN_SET     // allowedCountries = permitted ISO numeric codes
+  }
+
+  // One request struct keeps the present() signature stable as predicates are
+  // added -- a new predicate reuses `threshold` or adds a field here, rather
+  // than changing every call site.
+  export struct PredicateRequest {
+    predicateId:      PredicateId;
+    threshold:        Uint<64>;
+    allowedCountries: Vector<8, Uint<16>>;
+  }
+
+  // Fixed 8-way disjunction rather than a fold over the vector. Compact has
+  // no mutable locals, so an accumulating loop would need fold with an
+  // anonymous circuit; an explicit chain is longer but obviously correct, and
+  // the width is fixed at 8 anyway. Unused slots are filled with 0 by the
+  // caller, and 0 is not a valid ISO 3166-1 numeric code, so padding cannot
+  // accidentally match a real country.
+  export pure circuit countryAllowed(code: Uint<16>, allowed: Vector<8, Uint<16>>): Boolean {
+    return (code == allowed[0])
+        || (code == allowed[1])
+        || (code == allowed[2])
+        || (code == allowed[3])
+        || (code == allowed[4])
+        || (code == allowed[5])
+        || (code == allowed[6])
+        || (code == allowed[7]);
+  }
+
+  // Returns whether the predicate holds. The caller asserts on the result --
+  // a Boolean-returning check enforces nothing on its own.
+  export pure circuit evalPredicate(
+    req:   PredicateRequest,
+    attrs: CredentialAttrs,
+    asOf:  Uint<64>
+  ): Boolean {
+    if (req.predicateId == PredicateId.AGE_AT_LEAST) {
+      // born early enough that `threshold` has already elapsed by `asOf`
+      return (attrs.birthTimestamp + req.threshold) <= asOf;
+    }
+    if (req.predicateId == PredicateId.TIER_AT_LEAST) {
+      return (attrs.kycTier as Uint<64>) >= req.threshold;
+    }
+    if (req.predicateId == PredicateId.COUNTRY_IN_SET) {
+      return countryAllowed(attrs.countryCode, req.allowedCountries);
+    }
+    // Unknown predicate id: fail closed.
+    return false;
+  }
+
+}
