@@ -32,7 +32,7 @@ There are **two contracts**, and the distinction matters for every row below. `c
 | Deployed on Midnight **preview**: real proofs, real DUST fees, real block inclusion | Not on **preprod** yet |
 | Schnorr signature verification **inside the ZK circuit** (`jubjubSchnorrVerify`) — reference contract | The issuer's *identity assurance*. It signs on request, checks nothing |
 | — | The **deployed** contract replaces that signature check with a capability secret, because Compact language 0.23 has no signature-verification primitive (RESEARCH.md §G.3). Attestations are therefore not transferable and not verifiable offline |
-| 82 tests driving the real compiled circuits (54 reference, 28 port) | The test suites run against a local simulator, not a node. The on-chain path is covered by `npm run lifecycle`, which is a scripted run, not a test suite |
+| 82 tests driving the real compiled circuits (54 reference, 28 port) | The test suites run against a local simulator, not a node. The on-chain path is covered by `npm run lifecycle`, which is a scripted run, not a test suite. A further 20 tests — 9 on presentation formatting, 11 on the browser-wallet path — stub what they exercise and drive no circuit |
 
 The UI reports **proving time and total time separately**, labelled, and shows the transaction hash for anything that touched the chain. In simulator mode it reports circuit execution time and says so on screen. Nothing in this repo pretends a proof was generated when it was not.
 
@@ -98,7 +98,7 @@ onchain/src/chain.ts                the same four circuits, against a live netwo
 onchain/src/providers.ts            wallet adapter: DUST-era fees for midnight-js
 onchain/src/service.ts              HTTP front for the deployed contract (:4100)
 onchain/src/lifecycle-demo.ts       the whole demo on chain, printing tx hashes
-onchain/tests/                      28 tests for the port
+onchain/tests/                      37 tests for the port
 onchain/deployments/                one file per network actually deployed to
 
 RESEARCH.md                         verified Compact API surface (Phase 0)
@@ -239,28 +239,30 @@ runs the nine-step demo from §5 against that contract. This is its output, with
 
 ```
 1. Register the issuer
-   already registered on this contract — skipping
+   tx      e71127704da8d7e044b91c34fc04cb03265cc9c7be680772a5925ae92fa6a044
+   block   647631
+   timing  1433 ms proving · 88.5s to inclusion
 
 2. Issue a credential to Alice
-   tx      d4200c9ce31afa1416abdf71916e8e029041e2ba25628b5d893a846fe7cfad73
-   block   647132
-   timing  2304 ms proving · 117.7s to inclusion
-   leaf    1
+   tx      2034c020c3fdbf85687d29cd6d0f13a8aa64c6821ca5e9b0029b1b146542a71d
+   block   647638
+   timing  1958 ms proving · 50.1s to inclusion
+   leaf    0
    the ledger received a commitment. The age, country and tier did not.
 
 3. Present to Alpha Exchange — "is Alice over 18?"
-   tx      6c0a7991d3c57554d54b6524bba93c0bd09e9554abf5d5d305ea84c83cb29d78
-   block   647139
-   timing  3111 ms proving · 33.3s to inclusion
-   asOf    48s old — 16% of the 300s freshness window
-   nullifier f33d2a828376cd5f704234497784e0cc3165a03e53506ca3e10b97bd7c67ba30
+   tx      d974178483245cbae747c32743203aebfe083fbb6bdd7604b5a57c7fb57b966c
+   block   647648
+   timing  3450 ms proving · 41.7s to inclusion
+   asOf    41s old — 14% of the 300s freshness window
+   nullifier 5f0336db2f26f674e249ae1245ffd254cf6709b5324143ce26b0f0dd1d3b0300
 
 4. Present to Beta Lending — same person, same question
-   tx      155e06dae79134d135ee2ea6f38c6e33bf2b9175076a51359591891db2faf7ad
-   block   647147
-   timing  3080 ms proving · 34.1s to inclusion
-   asOf    41s old — 14% of the 300s freshness window
-   nullifier 2aa99327efe66689821a7ae533521831db51e59618d64da19355858a4696813e
+   tx      5a983f567556c8c4196b507148660d668638eb8279ce6cc626d2fd35643254dd
+   block   647655
+   timing  4893 ms proving · 35.6s to inclusion
+   asOf    37s old — 12% of the 300s freshness window
+   nullifier e42d95ed995ccd5a8fb3e0a5270b193279dc1cd7a208f95de76e10f89ee8185e
 
 5. Linkage test — can the two verifiers tell it was the same person?
    bytes in common: 0 of 32
@@ -270,9 +272,9 @@ runs the nine-step demo from §5 against that contract. This is its output, with
    ✓ refused: failed assert: nullifier already spent this epoch
 
 7. Keep a copy of the Merkle path, then revoke Alice
-   tx      516977dcb37774ebe35d8675560e39514dad4c4edafa493af26e2564c37d48ae
-   block   647154
-   timing  1333 ms proving · 35.5s to inclusion
+   tx      a7fe7640e7ec603f983b44663186a48f4b7b44a5c4188865994c5aef5450456a
+   block   647662
+   timing  1591 ms proving · 35.3s to inclusion
    root history cleared, epoch advanced
 
 8. Present with the pre-revocation path — must be refused (I2)
@@ -284,13 +286,16 @@ runs the nine-step demo from §5 against that contract. This is its output, with
 All steps behaved as specified, on a live network.
 ```
 
-Step 1 skips because this was the second run against the same contract — the
-issuer was registered by the first, in tx
-`6bdd1253c16c27c485d8a1eb9e585c5699cf3eef4b9f43b86b5186c021b5b04f`, block
-647,061. Every step checks whether it is needed, so the script is safe to
-re-run against a chain that keeps its state; the holder and verifier key
-material is random per run, so the presentations do not collide with the
-previous run's nullifiers.
+That is the first run against a fresh deployment, so step 1 actually registers
+the issuer. Re-running skips it and says so: every step checks whether it is
+needed, which is what makes the script safe against a chain that keeps its
+state. Holder and verifier key material is random per run, so a second run's
+presentations do not collide with the first run's nullifiers.
+
+Step 1 is also the check that matters most about this particular deployment.
+The issuer secret is not in this repository — it is generated into
+`onchain/.authority.<network>.json` — so a `registerIssuer` that lands is the
+contract confirming the holder of that file, and nobody else, is the authority.
 
 Three things in that transcript are worth reading closely.
 
@@ -300,16 +305,23 @@ it checks the *message*, not merely that something was thrown — a refusal
 arriving from a later check than the intended one would hide a regression in
 the earlier one.
 
-**Proving takes 1.2–3.1 seconds; inclusion takes 33–118.** The proof is not the
+**Proving takes 1.4–4.9 seconds; inclusion takes 35–89.** The proof is not the
 bottleneck — the chain is. `present()` is the most expensive circuit, which is
-what six checks inside one proof costs; across both runs it ranged 3,080–5,076 ms.
+what six checks inside one proof costs; across every run recorded here it has
+ranged 3,080–5,076 ms, against 1,225–2,482 ms for the other three circuits.
 
-The same flow was then driven through the demo UI's own HTTP API, in on-chain
-mode, to confirm the interface reaches the chain rather than only the script
-does — issuance in block 647,236 (tx `9ccfdd92…`), presentations to the two
-verifiers in blocks 647,245 and 647,256 with unrelated nullifiers
-(`13a00441…` and `585b9b53…`), a replay refused, revocation in block 647,303
-(tx `81f0492f…`), and the presentation after it refused.
+The same flow was then driven through the demo UI's own HTTP routes, in
+on-chain mode, because the script and the interface are different code paths
+and only one of them was proven by the run above — issuance in block 647,699
+(tx `6cea5a30…`), presentations to the two verifiers in blocks 647,706 and
+647,713 with unrelated nullifiers (`69fe88b8…` and `6a46cfdc…`), revocation in
+block 647,720 (tx `705c55d0…`), and the presentation after it refused with
+`leaf not present in the active set`.
+
+That last refusal comes from the holder's side rather than from the circuit:
+once the leaf is gone, no Merkle path can be built, so there is nothing to
+prove and no transaction is sent. The in-circuit refusal — a holder who kept a
+path from before the revocation and tries it anyway — is step 8 above.
 
 **`asOf` was 48 seconds old — 16% of the 300-second window.** That percentage
 is why the first deployment was discarded rather than kept: it shipped a window
@@ -345,7 +357,7 @@ something today.
 | Runtime | compact-runtime 0.19.0 → on-chain runtime v4 (RC) | compact-runtime 0.16.0 → on-chain runtime **v3** |
 | Deployable | No — every live network runs v3 | Yes; that is why it exists |
 | Issuer authority | Jubjub Schnorr signature, verified in-circuit | **Proof of knowledge** of a secret whose digest is in ledger state |
-| Tests | 54 | 28 |
+| Tests | 54 | 37 (28 lifecycle + 9 formatting) |
 
 **Why the mechanism had to change.** Compiler 0.31.1 accepts only language
 0.23, and language 0.23 has no in-circuit signature verification of any
