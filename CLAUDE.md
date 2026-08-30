@@ -13,7 +13,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Ba điều phải luôn giữ trung thực khi viết code hay tài liệu trong repo này:
 
 - **Issuer là mock.** Nó ký bất cứ giá trị thuộc tính nào được đưa cho, không xác minh danh tính gì cả. Không bao giờ viết câu nào ngụ ý repo này đảm bảo danh tính thật.
-- **Đã deploy lên `preview`, chưa lên `preprod`.** Contract chạy thật tại `d62c8012e3e71bd70fe9ddd95cb43fa4f541e7ef520a032df778472693c465f3` (block 647,012) — proof thật, phí DUST thật. Nhưng thứ được deploy là **bản port** trong `onchain/`, không phải bản tham chiếu; xem mục 7. Bản port **không verify chữ ký issuer** — nó dùng capability secret. Đừng viết câu nào gộp hai contract làm một.
+- **Đã deploy lên `preview`, chưa lên `preprod`.** Contract chạy thật tại `c301baf55617c5cb6dab9986e46eaf300561e7a156826eaa2fec4551a8333193` (block 647,605) — proof thật, phí DUST thật. Nhưng thứ được deploy là **bản port** trong `onchain/`, không phải bản tham chiếu; xem mục 7. Bản port **không verify chữ ký issuer** — nó dùng capability secret. Đừng viết câu nào gộp hai contract làm một.
 - **Simulator vẫn là chế độ mặc định của demo.** `web/server.ts` chạy in-memory trừ khi bật chế độ on-chain. Ở chế độ đó không có ZK proof nào được sinh ra.
 - UI báo **thời gian proving và tổng thời gian riêng biệt** khi chạy on-chain, và báo **thời gian thực thi circuit** khi chạy simulator — luôn ghi rõ đang là cái nào trên màn hình.
 
@@ -108,7 +108,7 @@ issuer/mockIssuer.ts               credential authority giả, được gắn nh
 tests/                             54 test, mỗi invariant một file — xem tests/README.md
 web/server.ts                      contract host (Express, :4000), giữ MỘT instance Sim trong RAM
 web/src/                           React UI ba persona
-onchain/                           bản port deployable sang language 0.23 (đang làm — xem mục 7)
+onchain/                           bản port ĐANG CHẠY TRÊN PREVIEW — package riêng, xem mục 7
 RESEARCH.md                        bề mặt API Compact đã kiểm chứng + §G phân tích khả năng deploy
 DESIGN.md                          threat model, invariant, lựa chọn mật mã
 pitch/                             kịch bản video, deck.html, self-audit
@@ -229,7 +229,7 @@ npx vitest                                    # watch mode
 | Deploy được? | **Không** — mọi mạng live chạy v3 | Đó là toàn bộ lý do nó tồn tại |
 | Xác thực issuer | Chữ ký Schnorr Jubjub, verify trong circuit | **Chứng minh biết secret** khớp digest trong ledger |
 | TS engine + test | đầy đủ, 54 test | đầy đủ, 28 test |
-| Trạng thái | không deploy được, mãi mãi ở version set này | deployed `d62c8012…c465f3`, block 647,012 |
+| Trạng thái | không deploy được, mãi mãi ở version set này | deployed `c301baf5…3193`, block 647,605 |
 | Build | `npm run build:contract` | `onchain/build.sh` — gọi thẳng binary 0.31.1, không đụng default global |
 
 **Vì sao phải port:** compiler 0.31.1 chỉ nhận language 0.23, và language 0.23 **không có bất kỳ primitive verify chữ ký nào** — chín cái tên ứng viên đã được thử, tất cả đều unbound (RESEARCH.md §G.3). Nên bản port thay chữ ký công khai bằng capability secret. **Cái giá đã ghi thẳng trong header của file đó**: không còn attestation chuyển nhượng được, không verify offline được, ai biết secret thì issue và revoke được. Giữ nguyên phần ghi chú trung thực này nếu sửa file.

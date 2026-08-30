@@ -28,3 +28,10 @@ midnight-level-db/
 # can present that credential. Persisted because losing one strands its
 # leaf on chain forever -- unpresentable and unrevocable.
 .holders.*.json
+
+# The admin and issuer secrets for a deployment. Whoever holds these IS the
+# authority -- language 0.23 has no signature to check, only preimage
+# knowledge -- so committing one hands control of that contract to every
+# reader. Generated on first use; losing it means losing control, because
+# the digests are sealed into ledger state and no circuit can rotate them.
+.authority.*.json

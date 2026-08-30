@@ -21,6 +21,7 @@
 import { randomBytes } from 'node:crypto';
 
 import { ChainClient } from './chain.js';
+import { loadOrCreateAuthority } from './authority.js';
 import {
   FRESHNESS_WINDOW_SEC,
   SECONDS_PER_DAY,
@@ -37,7 +38,7 @@ import {
 } from './engine.js';
 
 const network = process.argv[2] ?? 'preview';
-const ADMIN_SECRET = bytes32(1);
+const { adminSecret: ADMIN_SECRET, issuer: AUTHORITY_ISSUER } = loadOrCreateAuthority(network);
 
 const ALPHA = label32('verifier:alpha-exchange');
 const BETA = label32('verifier:beta-lending');
@@ -104,7 +105,7 @@ console.log(`network   ${client.cfg.name}`);
 console.log(`fee payer ${client.walletAddress}`);
 
 try {
-  const issuer = makeIssuer(1n);
+  const issuer = AUTHORITY_ISSUER;
 
   // -------------------------------------------------------------------
   step(1, 'Register the issuer');

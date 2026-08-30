@@ -57,7 +57,19 @@ type Mode = 'simulator' | 'onchain';
 // Held in a cell rather than a bare `let`: a module-level `let` initialised
 // to a literal is narrowed to that literal, and every `=== 'onchain'` in
 // this file would then be flagged as an impossible comparison.
-const engine: { mode: Mode } = { mode: 'simulator' };
+//
+// The default is the simulator, deliberately: a restart should not silently
+// start spending DUST because of a choice made in a previous session. To
+// come up on chain -- for a scripted demo, say -- ask for it explicitly:
+//
+//   ENGINE=onchain npm run dev:chain
+//
+// An unreachable service is not a startup failure. The mode is still set,
+// the UI reports the on-chain engine as unavailable with the reason, and
+// starting the service later is enough.
+const engine: { mode: Mode } = {
+  mode: process.env.ENGINE === 'onchain' ? 'onchain' : 'simulator',
+};
 
 async function chain(path: string, body?: unknown): Promise<any> {
   const r = await fetch(`${CHAIN_URL}${path}`, {

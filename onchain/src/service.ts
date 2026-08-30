@@ -45,15 +45,20 @@ import {
   type PredicateRequest,
 } from './engine.js';
 import { resolveNetwork } from './network.js';
+import { loadOrCreateAuthority } from './authority.js';
+import { describePredicate, refusalReason } from './present-format.js';
 import { ONCHAIN_ROOT } from './wallet.js';
 
 const network = process.argv[2] ?? 'preview';
 const PORT = Number(process.env.CHAIN_SERVICE_PORT ?? 4100);
 const cfg = resolveNetwork(network);
 
-// The admin secret the contract was deployed with. Deterministic so the
-// demo is reproducible; a DEMO shortcut, stated as one.
-const ADMIN_SECRET = bytes32(1);
+// The admin and issuer secrets this deployment was made with, read from
+// `.authority.<network>.json`. Whoever holds that file is the authority --
+// there is no signature to check, only preimage knowledge -- so it is
+// generated per network, never committed, and shared by every entry point
+// rather than each deriving its own.
+const { adminSecret: ADMIN_SECRET, issuer } = loadOrCreateAuthority(network);
 
 // ---------------------------------------------------------------------
 // Off-chain state: exactly the things that must never reach a ledger
@@ -66,7 +71,6 @@ type Wallet = {
 };
 
 const wallets = new Map<string, Wallet>();
-const issuer: MockIssuer = makeIssuer(1n);
 const receipts: (TxReceipt & { at: number; action: string; detail?: string })[] = [];
 
 // ---------------------------------------------------------------------
@@ -376,27 +380,6 @@ type PresentBody = {
   allowedCountries?: number[];
 };
 
-/**
- * How a presentation reads in the UI.
- *
- * The age threshold is an age in SECONDS, because that is the unit the
- * circuit compares in. Printing it raw gives `age at least 567648000`,
- * which is true and useless. The simulator renders the same request as
- * `age >= 18`, and the two modes showing different text for an identical
- * request makes the comparison between them harder to trust.
- */
-function describePredicate(id: number, threshold: string, countries: number[]): string {
-  switch (id) {
-    case PredicateId.AGE_AT_LEAST:
-      return `age >= ${Number(BigInt(threshold) / 31_536_000n)}`;
-    case PredicateId.TIER_AT_LEAST:
-      return `kycTier >= ${threshold}`;
-    case PredicateId.COUNTRY_IN_SET:
-      return `country in {${countries.filter((c) => c !== 0).join(', ')}}`;
-    default:
-      return `unknown predicate ${id}`;
-  }
-}
 
 async function doPresent(b: PresentBody): Promise<Presentation> {
   const w = wallets.get(b.holderName);
@@ -624,24 +607,7 @@ const readBody = (req: any): Promise<any> =>
  * and joined -- otherwise a genuine "nullifier already spent this epoch"
  * shows up as a generic proving failure.
  */
-function reason(e: unknown): string {
-  const parts: string[] = [];
-  let cur: any = e;
-  while (cur) {
-    const m = cur.message ?? String(cur);
-    if (m && !parts.includes(m)) parts.push(m);
-    cur = cur.cause;
-  }
-  const full = parts.join(' — ') || 'unknown error';
-
-  // A refused circuit arrives wrapped: "Unexpected error executing scoped
-  // transaction '<unnamed>': Error: failed assert: X — ... — Error executing
-  // circuit 'present'". The contract's own sentence is the only part that
-  // means anything to a person, and the simulator shows exactly that, so the
-  // two modes should not disagree about what a refusal looks like.
-  const assertion = full.match(/failed assert:\s*([^—\n]+?)\s*(?:—|$)/);
-  return assertion ? assertion[1] : full;
-}
+const reason = refusalReason;
 
 const server = createServer(async (req, res) => {
   const send = (code: number, body: unknown) => {

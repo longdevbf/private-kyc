@@ -24,6 +24,7 @@ import * as CompiledContract from '@midnight-ntwrk/compact-js/effect/CompiledCon
 
 import { Contract } from '../managed/contract/index.js';
 import { resolveNetwork, PROOF_SERVER } from './network.js';
+import { loadOrCreateAuthority } from './authority.js';
 import { loadOrCreateSeed, ONCHAIN_ROOT } from './wallet.js';
 import { openFacade, saveWalletCache, waitSynced } from './facade.js';
 import { buildProviders } from './providers.js';
@@ -121,10 +122,11 @@ try {
   // -------------------------------------------------------------------
 
   // The admin secret is what the contract checks preimage knowledge
-  // against. In a real deployment this would be generated and kept by the
-  // deploying organisation; here it is derived deterministically so the
-  // demo can reproduce it. That is a DEMO shortcut and is stated as one.
-  const adminSecret = bytes32(1);
+  // against. Generated on first use into `.authority.<network>.json`, which
+  // is gitignored: it is not derivable from anything published, and losing
+  // the file means losing control of the deployment, because the digest is
+  // sealed into ledger state and no circuit here can rotate it.
+  const adminSecret = loadOrCreateAuthority(cfg.name).adminSecret;
 
   const initialPrivateState: PrivateState = {
     ...blankPrivateState(),

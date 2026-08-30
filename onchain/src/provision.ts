@@ -31,6 +31,7 @@ import * as CompiledContract from '@midnight-ntwrk/compact-js/effect/CompiledCon
 
 import { Contract } from '../managed/contract/index.js';
 import { resolveNetwork, PROOF_SERVER } from './network.js';
+import { loadOrCreateAuthority } from './authority.js';
 import { loadOrCreateSeed, ONCHAIN_ROOT } from './wallet.js';
 import { openFacade, saveWalletCache, waitSynced } from './facade.js';
 import { buildProviders } from './providers.js';
@@ -265,11 +266,12 @@ try {
     });
 
     // The admin secret the contract checks preimage knowledge against.
-    // Derived deterministically so the demo is reproducible — a DEMO
-    // shortcut, stated as one.
+    // Read from `.authority.<network>.json`, generated on first use and
+    // never committed: whoever holds it controls this deployment, and a
+    // secret published in the repository is not an authority at all.
     const initialPrivateState: PrivateState = {
       ...blankPrivateState(),
-      localSecret: bytes32(1),
+      localSecret: loadOrCreateAuthority(cfg.name).adminSecret,
     };
 
     const witnesses = {

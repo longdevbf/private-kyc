@@ -4,7 +4,7 @@ A credential **lifecycle** layer on [Midnight](https://midnight.network) — iss
 
 **The issuer in this project is mocked.** It signs whatever attribute values it is handed and performs no identity verification of any kind. We make no claim of real-world identity assurance. What *is* real is everything underneath: the lifecycle, revocation, unlinkability and expiry are genuine contract logic, verified by 82 tests that drive the compiled circuits.
 
-The contract is **deployed and running on Midnight preview**, at address `d62c8012e3e71bd70fe9ddd95cb43fa4f541e7ef520a032df778472693c465f3` (deploy tx `b7faa7229ac4c43acb69dbf44840d337e125a583ad1b310ecfd968a310d0a68b`, block 647,012). Every circuit has been executed there against real block time, with a real zero-knowledge proof and real DUST fees. It is **not** on preprod yet — that network's first wallet sync is a multi-hour job (1,466,572 dust events against preview's 176,094).
+The contract is **deployed and running on Midnight preview**, at address `c301baf55617c5cb6dab9986e46eaf300561e7a156826eaa2fec4551a8333193` (deploy tx `0e82e517abe93bfceca8a9fd4b7ee9c989a0bac87bc6bb82575a0666f0a22a41`, block 647,605). Every circuit has been executed there against real block time, with a real zero-knowledge proof and real DUST fees. It is **not** on preprod yet — that network's first wallet sync is a multi-hour job (1,466,572 dust events against preview's 176,094).
 
 ---
 
@@ -221,9 +221,9 @@ Deployed on Midnight **preview**:
 
 | | |
 |---|---|
-| Contract | `d62c8012e3e71bd70fe9ddd95cb43fa4f541e7ef520a032df778472693c465f3` |
-| Deploy tx | `b7faa7229ac4c43acb69dbf44840d337e125a583ad1b310ecfd968a310d0a68b` |
-| Block | 647,012 |
+| Contract | `c301baf55617c5cb6dab9986e46eaf300561e7a156826eaa2fec4551a8333193` |
+| Deploy tx | `0e82e517abe93bfceca8a9fd4b7ee9c989a0bac87bc6bb82575a0666f0a22a41` |
+| Block | 647,605 |
 | Indexer | `https://indexer.preview.midnight.network/api/v4/graphql` |
 
 Every claim here is a transaction you can look up. `npm run lifecycle -- preview`
@@ -427,7 +427,7 @@ Summarised here, argued in full in [DESIGN.md](DESIGN.md).
 - Presenting discloses **which issuer** attested the credential, though not which credential.
 - **The reference contract cannot be deployed to any live network.** It compiles against the v4 on-chain runtime, which is still a release candidate; the networks run v3. What is deployed is the language-0.23 port in `onchain/`.
 - **The deployed port authenticates issuers with a shared capability secret, not a signature.** Anyone who learns that secret can issue and revoke. This is a real weakening, forced by the absence of any signature primitive in language 0.23, and it is recorded in the header of the contract file itself.
-- **The secret used by the deployed instance is public.** `onchain/src/service.ts` uses `ADMIN_SECRET = bytes32(1)` and issuer `makeIssuer(1n)`, both derived from constants in this repository, so anybody reading it can issue and revoke credentials on the contract at `d62c8012…c465f3`. That is deliberate — the deployment is a demonstration anyone can inspect and reproduce, not a service holding anything of value — but it means the live instance offers **no** issuer authority in practice, on top of the weaker authority the mechanism offers in principle. A real deployment would generate the secret out of band and never commit it.
+- **Whoever holds `onchain/.authority.<network>.json` controls that deployment**, and there is no way to rotate it: the digests are sealed into ledger state when the contract is deployed, and no circuit here can change them. Lose the file and the deployment is unadministrable. It is generated on first use and gitignored. *(An earlier deployment derived these from `bytes32(1)` and `makeIssuer(1n)` — constants in this repository — which meant any reader could issue and revoke on it. That deployment is recorded in `onchain/deployments/superseded/`.)*
 - The `asOf` freshness window grants up to 5 minutes of grace past expiry.
 - **Preview is the only network targeted.** Preprod was scoped out deliberately, for two measured reasons: its first wallet sync is 1,466,572 dust events against preview's 176,094, and its faucet is behind a Cloudflare Turnstile captcha, so provisioning it cannot be automated. Nothing in the code is preview-specific — `onchain/src/network.ts` carries preprod's endpoints, and `npm run provision -- preprod` is the same command — but it has not been run, so do not claim it works.
 - Wallet state is cached to `onchain/.wallet-cache.<network>.json` so a failure late in a long sync does not cost a full rescan. That cache is a convenience, not a security boundary — delete it if you do not trust its contents.
