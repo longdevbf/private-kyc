@@ -70,8 +70,61 @@ function isWalletApiError(e: unknown): e is WalletApiError {
  * prompt, and not having granted a permission -- are indistinguishable
  * from a bug in this demo.
  */
+/**
+ * What the node's `Custom error: N` numbers mean.
+ *
+ * A wallet relays the node's refusal verbatim, so "Invalid Transaction:
+ * Custom error: 182" is all a person sees — a number with no way to act on
+ * it. Midnight publishes the table, in `midnightntwrk/midnight-expert` at
+ * `plugins/midnight-status-codes/skills/status-codes/references/node-errors.md`.
+ *
+ * Only codes taken from that table are listed. An unlisted code is reported
+ * as a number with a pointer to the table rather than guessed at.
+ */
+const NODE_ERROR_CODES: Record<number, string> = {
+  117: 'the transaction was not in normal form — usually a fee that rounded to zero, leaving no DUST inputs',
+  138: 'a token balance went negative once fees were applied — the DUST fee exceeded what the wallet had',
+  173: 'not enough DUST to pay the registration fee',
+  177: 'two intents claimed the same segment id',
+  182: 'replay protection refused the intent. This code is retired in newer ledgers, where it splits into: TTL expired, TTL too far in the future, or an intent identifier that already exists',
+  189: 'unshielded inputs were not sorted',
+  192: 'the number of signatures did not match the number of inputs',
+  228: 'the intent TTL had already expired',
+  229: 'the intent TTL was too far in the future',
+  230: 'an intent with that identifier already exists',
+  242: 'the intent TTL expired between submission and validation',
+  243: 'the intent TTL was too far ahead',
+  244: 'an intent with that identifier already exists',
+};
+
+/**
+ * Decode a node rejection if the text contains one.
+ *
+ * The wallet's own message is kept as well as the decoded meaning: the
+ * wallet said where it failed, and the code says why the node refused.
+ */
+function explainNodeRejection(text: string): string | undefined {
+  const m = text.match(/Custom error:\s*(\d+)/);
+  if (!m) return undefined;
+  const code = Number(m[1]);
+  const known = NODE_ERROR_CODES[code];
+  return known
+    ? `the node refused it — ${known} (Custom error ${code})`
+    : `the node refused it with Custom error ${code}, which is not in this build's table — look it up in midnight-expert's node-errors.md`;
+}
+
 export function explainWalletError(e: unknown): string {
-  if (!isWalletApiError(e)) return e instanceof Error ? e.message : String(e);
+  const text = e instanceof Error ? e.message : String(e);
+
+  // Both, because a connector error carries the node's words in `reason`
+  // while `message` may be the wallet's own summary. The observed failure
+  // put "Invalid Transaction: Custom error: 182" in the reason.
+  const rejection = explainNodeRejection(
+    isWalletApiError(e) ? `${text} ${e.reason}` : text,
+  );
+  if (rejection) return rejection;
+
+  if (!isWalletApiError(e)) return text;
   switch (e.code) {
     case 'Rejected':
       return 'you declined the request in the wallet';

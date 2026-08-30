@@ -173,3 +173,51 @@ describe('explainWalletError', () => {
     expect(explainWalletError(new Error('network down'))).toBe('network down');
   });
 });
+
+describe('node rejection codes', () => {
+  // The numbers come from midnight-expert's node-errors.md. A wallet relays
+  // the node's refusal verbatim, so without this a person sees only
+  // "Custom error: 182" and has nothing to act on. This happened: a real
+  // browser wallet refused a submission that way, and the same prepared
+  // transaction was accepted moments later when a different wallet balanced
+  // it — so the number was the only clue available.
+  const relayed = (text: string) =>
+    Object.assign(new Error('the wallet failed to process the request'), {
+      type: 'DAppConnectorAPIError',
+      code: 'InternalError',
+      reason: text,
+    });
+
+  it('decodes a code carried in the connector error reason', () => {
+    const out = explainWalletError(
+      relayed('Operation failed: Invalid Transaction: Custom error: 182'),
+    );
+    expect(out).toMatch(/replay protection/);
+    expect(out).toMatch(/182/);
+  });
+
+  it('decodes a code carried in a plain error message', () => {
+    expect(explainWalletError(new Error('1010: Invalid Transaction: Custom error: 192')))
+      .toMatch(/signatures did not match/);
+  });
+
+  it('reports an unknown code as a number and says where to look it up', () => {
+    const out = explainWalletError(new Error('Invalid Transaction: Custom error: 251'));
+    expect(out).toMatch(/251/);
+    expect(out).toMatch(/node-errors\.md/);
+  });
+
+  it('leaves a wallet-side failure to the connector codes', () => {
+    // No node rejection in the text, so this must still read as a refusal
+    // by the person rather than by the chain.
+    expect(explainWalletError(relayedRejection())).toBe('you declined the request in the wallet');
+  });
+});
+
+function relayedRejection() {
+  return Object.assign(new Error('user cancelled'), {
+    type: 'DAppConnectorAPIError',
+    code: 'Rejected',
+    reason: 'user cancelled',
+  });
+}

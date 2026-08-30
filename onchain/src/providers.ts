@@ -116,6 +116,7 @@ export function buildProviders(
       });
       const signed = await wallet.signRecipe(recipe, signSegment);
       const finalized = await wallet.finalizeRecipe(signed);
+      if (process.env.LOG_TTL) logIntentTtls('service balanceTx', finalized);
       opts.onTiming?.({ balanceMs: Math.round(performance.now() - started) });
       return finalized;
     },
@@ -210,4 +211,26 @@ export function buildProviders(
     walletProvider,
     midnightProvider,
   };
+}
+
+/**
+ * Print the TTL on every intent of a transaction, under LOG_TTL=1.
+ *
+ * Diagnostic, kept because it answered a question that guessing did not: a
+ * browser wallet's submission was refused with `Custom error: 182`, whose
+ * three modern replacements are all about intent TTL or intent identity, so
+ * the only way to make progress was to compare the TTL this path produces
+ * against the one the wallet path produces rather than reason about it.
+ */
+function logIntentTtls(label: string, tx: unknown): void {
+  try {
+    const intents = (tx as any).intents as Map<number, { ttl: Date }> | undefined;
+    const now = Date.now();
+    for (const [segment, intent] of intents ?? new Map()) {
+      const delta = Math.round((intent.ttl.getTime() - now) / 1000);
+      console.log(`[ttl] ${label} segment ${segment}: ${intent.ttl.toISOString()} (now + ${delta}s)`);
+    }
+  } catch (e) {
+    console.log(`[ttl] ${label}: could not read intents (${e instanceof Error ? e.message : String(e)})`);
+  }
 }
