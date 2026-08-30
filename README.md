@@ -213,6 +213,13 @@ after a failure.
 which is a transaction of its own, and then DUST accrues over time. `provision`
 does this and waits.
 
+**Deploying generates `onchain/.authority.<network>.json` and that file is the
+authority.** The contract has no signature to check — an issuer proves it knows
+a secret whose digest is in ledger state — so whoever holds the file can issue
+and revoke, and nobody else can. It is gitignored. Losing it makes the
+deployment unadministrable, because the digests are sealed at deploy time and
+no circuit here can rotate them; deploying again is the only recovery.
+
 ---
 
 ## On chain

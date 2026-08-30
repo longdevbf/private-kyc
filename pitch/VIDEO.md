@@ -80,7 +80,13 @@ Same split in the rail on the right, in every view. Amber is private. Cyan is th
 
 Underneath each one, the circuit trace: the eight things `present` checks, in the order it checks them. Freshness, commitment, issuer signature, leaf binding, root membership, expiry, predicate, nullifier. Every one of those is an assertion in the contract, and the order is the design.
 
-Both of those ran the real compiled circuit. The timing shown is circuit execution — we're not generating a full proof in this demo and the footnote says so."
+Both of those ran the real compiled circuit."
+
+> **Say the next line according to which engine is selected on screen. Do not say both, and do not say the on-chain line while the simulator is running.**
+>
+> **Simulator:** "The timing shown is circuit execution, not proving — we're not invoking the prover here, and the footnote on screen says so."
+>
+> **On chain:** "That was a real transaction on Midnight preview. The timing splits into proving and total, and the hash next to it is on the indexer right now. What's deployed is the ported contract — language 0.23, which has no in-circuit signature verification — so the issuer check there is proof of knowledge of a secret, not a Schnorr signature. The reference contract in `contracts/` is the one with the signature, and it can't be deployed until Midnight's v4 runtime ships."
 
 ### 1:40 – 2:00 · **The linkage test** — the centrepiece
 

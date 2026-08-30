@@ -79,13 +79,15 @@ Speaker notes are what you say; slide content is what appears. Keep the slides s
 
 | Real | Mocked |
 |---|---|
-| Schnorr verified **in-circuit** | Issuer identity assurance |
 | Nullifiers, unlinkability | — |
 | Merkle membership, in-circuit | — |
 | Revocation, expiry | — |
-| 54 tests on real circuits | No proof generated; not on chain |
+| **Deployed on preview**: real proofs, real DUST fees, real blocks | Not on preprod |
+| Schnorr verified **in-circuit** — *reference contract* | Issuer identity assurance |
+| — | The **deployed** contract has no signature check at all: language 0.23 has no such primitive, so an issuer proves knowledge of a secret |
+| 82 tests driving real circuits (54 + 28) | No test touches a network; 20 more cover formatting and the wallet path, and those stub |
 
-**Notes:** Do not soften this. The demo runs the contract against an in-memory ledger: circuits execute and every constraint is enforced, but the prover is not invoked and nothing is on chain. Saying it plainly is worth more than the marginal credit for glossing it.
+**Notes:** Do not soften this, and do not merge the two contracts into one claim. What runs on preview is the **port**, and it gives up the in-circuit signature to get there. Asked "is it deployed?", the true answer is "the port is — here is the address and the block", never a plain yes that lets them assume it is the reference version.
 
 ---
 

@@ -561,18 +561,21 @@ body:not(.show-notes) .notes { display: none; }
     <table>
       <thead><tr><th>Real</th><th>Mocked</th></tr></thead>
       <tbody>
-        <tr><td class="real">Schnorr verified in-circuit</td><td class="mocked">Issuer identity assurance</td></tr>
         <tr><td class="real">Per-verifier nullifiers</td><td>—</td></tr>
         <tr><td class="real">Merkle membership, in-circuit</td><td>—</td></tr>
         <tr><td class="real">Revocation and expiry</td><td>—</td></tr>
-        <tr><td class="real">54 tests on real circuits</td><td class="mocked">No proof generated; not on chain</td></tr>
+        <tr><td class="real">Deployed on preview: real proofs, real fees, real blocks</td><td class="mocked">Not on preprod</td></tr>
+        <tr><td class="real">Schnorr verified in-circuit — <em>reference contract</em></td><td class="mocked">Issuer identity assurance</td></tr>
+        <tr><td>—</td><td class="mocked">The <em>deployed</em> contract has no signature check: language 0.23 has no such primitive, so an issuer proves it knows a secret</td></tr>
+        <tr><td class="real">82 tests driving real circuits (54 + 28)</td><td class="mocked">No test touches a network; 20 more cover formatting and the wallet path, and those do stub</td></tr>
       </tbody>
     </table>
     <div class="notes">
-      Do not soften this. The demo runs the contract against an in-memory
-      ledger: circuits execute and every constraint is enforced, but the prover
-      is not invoked and nothing is on chain. Saying it plainly is worth more
-      than the marginal credit for glossing it.
+      Do not soften this, and do not merge the two contracts into one claim.
+      The contract running on preview is the port, and it gives up the
+      in-circuit signature to get there. If asked "is it deployed?", the true
+      answer is "the port is, here is the address and the block" — never a
+      plain yes that lets them assume it is the reference version.
     </div>
   </section>
 
