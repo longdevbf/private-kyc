@@ -1338,3 +1338,65 @@ response) except one that reached the Express router and answered
 `Cannot POST /api/request`. So the server is up and the block is at the
 edge. Funding a preprod wallet requires a human with a browser; it is not
 a step a provisioning script can own.
+
+### H.13 A browser wallet's submission, refused — and how to tell whose fault it is
+
+A real extension (1AM Wallet, DApp Connector v4) connected to the demo,
+reported its balances, accepted a proved transaction from
+`/api/chain/prepare`, balanced it, and then failed:
+
+```
+the wallet refused to submit it: the wallet failed to process the request:
+Operation failed: Invalid Transaction: Custom error: 182
+```
+
+**The code first, per §H.10.** `182` = `TransactionApplicationError`, and
+it is **retired** in the current ledger: `RETIRED_U8_ERROR_CODES` contains
+`[168, 182, 186, 187, 188, 193, 205]`. Its replacements are all
+replay-protection codes — 228 `IntentTtlExpired`, 229
+`IntentTtlTooFarInFuture`, 230 `IntentAlreadyExists` — so the failure is
+about intent TTL or intent identity, and nothing else.
+
+**TTL ruled out by measurement.** `Intent.ttl` is a `Date` and readable off
+a serialized transaction, so it was read rather than assumed:
+
+```
+intent 22084: ttl now + 3597s
+```
+
+An hour ahead. Not expired, and the same one hour the facade's own
+`DEFAULT_TTL_MS` uses on the path that works.
+
+**Whose fault, decided by substitution.** The remaining question was whether
+`prepare` produces something the node refuses, or whether the extension
+mishandles something valid. Those need opposite fixes, so the wallet's job
+was done by this project's own wallet instead — same transaction, same
+sequence, different balancer:
+
+```
+prepared 5445 bytes, 2454 ms proving, intent ttl now + 3597s
+balancing with this project's wallet…
+ACCEPTED  001078067cd0af65f0ee0787dd46d1f39b4a7d9c9f71d48dcdc05ba4dd0c1e0aa1
+```
+
+Accepted. And the indexer confirms the browser wallet's attempt never
+reached the contract — the latest action on it remained the demo's own
+revoke — so it was refused, not duplicated after a success.
+
+The transaction is therefore valid and the refusal comes from what the
+extension produced when balancing it. The wallet showed `NIGHT 0.0` with
+`DUST SPONSORED`, so its fee path introduces a sponsor's own intent rather
+than spending the holder's DUST; that is the part this project does not
+build and cannot inspect.
+
+**What was worth changing here.** Nothing about the transaction. What was
+wrong was the UI: it showed the number and stopped. `explainWalletError`
+now decodes the published codes, and searches the connector error's
+`reason` as well as its `message` — this failure carried the node's words
+in `reason`, so a `message`-only search would have found nothing.
+
+**Generalising, again:** §H.10 said look the number up first. This time
+that was done, and it narrowed a vague failure to two candidates in one
+step. What it could not do is assign blame — that took running the same
+bytes through a second implementation, which is worth reaching for
+whenever a failure sits on a boundary between two pieces of software.

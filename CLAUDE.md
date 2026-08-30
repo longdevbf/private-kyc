@@ -238,7 +238,11 @@ Bản port đã build full ZK, đã deploy lên **preview**, và cả chín bư�
 
 **Chỉ preview.** Preprod bị loại có lý do đo được: 1,466,572 dust event so với 176,094 của preview, và faucet của nó nằm sau Cloudflare Turnstile nên không script được (RESEARCH.md §H.12). Code không có gì riêng cho preview — `onchain/src/network.ts` có sẵn endpoint preprod — nhưng **chưa chạy thì đừng nói là chạy được**.
 
-Việc còn lại: Lace ký trực tiếp lời gọi contract. Hiện `web/src/wallet.ts` viết đúng DApp Connector v4.0.1 và `chain.ts` có `prepare`/`confirm`, nhưng **đường đó chưa từng chạy với extension thật** — ví của service mới là thứ ký và trả phí. Đừng gọi nó là "wallet integration" khi chưa có ai chạy.
+Việc còn lại: ví trình duyệt ký trực tiếp lời gọi contract. Đường đó **đã chạy với extension thật** (1AM) và qua được bốn trên năm bước — kết nối, đọc số dư, nhận transaction đã prove, balance xong. **Bước submit bị node từ chối `Custom error: 182`** (mã replay protection).
+
+Lỗi không nằm ở repo, và điều đó đã được chứng minh chứ không phải suy đoán: đúng transaction đó, cho ví của service balance rồi submit thì chain **nhận** (tx `00107806…`), và indexer cho thấy không có gì từ ví trình duyệt chạm tới contract. Nghi ngờ chính là đường **sponsored DUST** của ví đó.
+
+Cách nói đúng: "đường trình duyệt chạy tới bước submit, và một ví từ chối ở đó" — **không** phải "wallet integration đã xong", cũng **không** phải "chưa từng thử".
 
 **Bí mật ví là tiền thật trên testnet.** `onchain/.seed.*`, `.wallet-cache.*`, `.holders.*` đều đã trong `.gitignore` — kiểm tra lại bằng `git check-ignore` trước khi commit, đừng tin bằng mắt.
 

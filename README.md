@@ -425,7 +425,7 @@ execution.
 **Wave 2**
 - Credential renewal without full re-issuance
 - Verifier SDK so a third party can integrate without reading the contract
-- **Lace signs the contract calls.** The DApp Connector path is written but has never run against an installed wallet; today the service's own wallet pays and signs
+- **A browser wallet signs the contract calls end to end.** The DApp Connector path has been run against an installed wallet (1AM) and gets four of five steps: the wallet connects, reports its balances, is handed a proved transaction, and balances it. Its submission was refused by the node with `Custom error: 182` — a replay-protection code. The same prepared transaction was accepted moments later when this project's own wallet balanced and submitted it (tx `00107806…`), so the transaction is not the problem, and the remaining work is on the wallet side. Until it lands, the service's own wallet is what pays and signs
 - Preprod, once its faucet can be reached without a human in a browser
 - Batched revocation, to amortise the path-refresh cost
 
