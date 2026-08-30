@@ -50,6 +50,11 @@ jobs:
       - name: Run the test suite
         run: npm test
 
+      # Separate from `npm test` on purpose: these stub a wallet, and the
+      # root suite's claim is that nothing in it is stubbed.
+      - name: Run the browser-wallet wiring tests
+        run: npm run test:web
+
       - name: Build the demo UI
         run: npm run build:web
 

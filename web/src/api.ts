@@ -1,5 +1,7 @@
 // Thin client over the demo backend. Every call reaches a real circuit.
 
+import { explainWalletError } from './wallet.js';
+
 export type PublicState = {
   issuers: string[];
   merkleRoot: string;
@@ -210,7 +212,11 @@ export async function runViaWallet(
   };
 }
 
-const msg = (e: unknown) => (e instanceof Error ? e.message : String(e));
+// A wallet failure carries a documented `code` that says whether the person
+// declined, lacks a permission, or hit a wallet bug. Reading it is the
+// difference between "you declined the request in the wallet" and whatever
+// free text the extension chose to put in `message`.
+const msg = (e: unknown) => explainWalletError(e);
 
 export const api = {
   state: async (): Promise<DemoState> => {

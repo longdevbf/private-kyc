@@ -44,6 +44,52 @@ export type ConnectedWallet = {
   hintUsage(methodNames: string[]): Promise<void>;
 };
 
+/**
+ * The error shape the connector throws.
+ *
+ * Deliberately not a class extending Error: the published package says so,
+ * and says why -- `instanceof` cannot work reliably across the extension
+ * boundary. The documented check is `error.type === 'DAppConnectorAPIError'`,
+ * so that is the check used here.
+ */
+export type WalletApiError = Error & {
+  type: 'DAppConnectorAPIError';
+  code: 'InternalError' | 'Rejected' | 'InvalidRequest' | 'PermissionRejected' | 'Disconnected';
+  reason: string;
+};
+
+function isWalletApiError(e: unknown): e is WalletApiError {
+  return Boolean(e) && (e as WalletApiError).type === 'DAppConnectorAPIError';
+}
+
+/**
+ * Turn a wallet failure into a sentence that says what to do next.
+ *
+ * Without this the UI shows whatever string the extension happened to put
+ * in `message`, and the two failures a person actually hits -- declining a
+ * prompt, and not having granted a permission -- are indistinguishable
+ * from a bug in this demo.
+ */
+export function explainWalletError(e: unknown): string {
+  if (!isWalletApiError(e)) return e instanceof Error ? e.message : String(e);
+  switch (e.code) {
+    case 'Rejected':
+      return 'you declined the request in the wallet';
+    case 'PermissionRejected':
+      return 'the wallet has not been given permission for this action';
+    case 'Disconnected':
+      return 'the wallet disconnected — connect it again';
+    case 'InvalidRequest':
+      return `the wallet rejected the request as malformed: ${e.reason}`;
+    case 'InternalError':
+      return `the wallet failed to process the request: ${e.reason}`;
+    default:
+      // A code this build has not seen. Show it rather than swallowing it:
+      // an unknown code is information, and the connector API is versioned.
+      return `${e.code}: ${e.reason}`;
+  }
+}
+
 export type WalletHandle = {
   /** Reverse-DNS identifier, e.g. `io.lace`. Stable across releases. */
   rdns: string;
@@ -77,7 +123,13 @@ export function discoverWallets(): WalletHandle[] {
   );
 }
 
-/** tNIGHT and tDUST carry six decimal places, the way the faucet shows them. */
+/**
+ * Format an atomic-unit balance for display.
+ *
+ * The six-decimal default is an UNVERIFIED assumption -- see the note on
+ * `formatDust` in onchain/src/wallet.ts. Balances shown through this may be
+ * off by a power of ten; nothing computed depends on it.
+ */
 export function formatUnits(v: bigint, decimals = 6): string {
   const neg = v < 0n;
   const abs = neg ? -v : v;

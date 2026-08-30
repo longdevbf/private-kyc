@@ -112,7 +112,20 @@ export async function walletInfo(wallet: Wallet): Promise<{
   };
 }
 
-/** tDUST has 6 decimal places; print it the way the faucet does. */
+/**
+ * Print a DUST balance with six decimal places.
+ *
+ * UNVERIFIED ASSUMPTION, and it may well be wrong. The atomic unit of DUST
+ * is the SPECK and of NIGHT the STAR -- the indexer schema names both -- but
+ * no package in this dependency tree states how many SPECK make one DUST.
+ * Six is what the faucet's display appeared to use. Against it: a balance of
+ * 588610399993999993 SPECK reads as 588 billion tDUST at six decimals, which
+ * is not a plausible faucet drip, and reads as 588 tDUST at fifteen, which
+ * is. `DustParameters.nightDustRatio` in ledger-v8 is the authoritative
+ * value and can be read from chain state; until it has been, this function
+ * formats a number whose scale is a guess. It affects display only -- every
+ * fee calculation works in SPECK throughout.
+ */
 export function formatDust(v: bigint): string {
   const whole = v / 1_000_000n;
   const frac = (v % 1_000_000n).toString().padStart(6, '0');

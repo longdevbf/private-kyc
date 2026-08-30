@@ -3,6 +3,7 @@ import type { DemoState } from '../api.js';
 import {
   discoverWallets,
   formatUnits,
+  explainWalletError,
   type ConnectedWallet,
   type WalletHandle,
 } from '../wallet.js';
@@ -115,7 +116,7 @@ export function WalletConnect({
       onSession(s);
     } catch (e) {
       onSession(null);
-      setError(e instanceof Error ? e.message : String(e));
+      setError(explainWalletError(e));
     } finally {
       setBusy(null);
     }
@@ -127,7 +128,7 @@ export function WalletConnect({
     try {
       onSession(await readBalances(session.handle, session.api));
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(explainWalletError(e));
     } finally {
       setBusy(null);
     }
