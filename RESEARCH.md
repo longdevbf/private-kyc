@@ -952,3 +952,389 @@ invalidate the I6 and I7 tests as written.
 
 That is a real decision with a real cost, not a configuration change. It
 is recorded here so the trade-off is visible rather than implied.
+
+---
+
+## H. Paying for a deployment, verified 2026-08-30
+
+Everything below was read out of the installed packages in
+`onchain/node_modules`, not from documentation. The file and line
+references are reproducible with `grep` against that tree.
+
+### H.1 The version chain the live networks accept
+
+```
+@midnight-ntwrk/midnight-js-contracts   4.1.1
+  └ midnight-js-protocol                4.1.1
+      ├ compact-runtime                 0.16.0
+      │   └ onchain-runtime-v3          3.0.0     ← what the networks run
+      ├ ledger-v8                       8.1.0
+      └ compact-js                      2.5.1
+```
+
+`midnightntwrk/proof-server:8.1.0` reports `ledger-8.1.0` on startup, and
+the port in `onchain/contract/` compiles against `ledger-8.0.2`. One copy
+of `ledger-v8` and one of `compact-runtime` exist in the tree, so the WASM
+classes crossing between the wallet and midnight-js are the same classes —
+checked with `find node_modules -name ledger-v8 -type d`, which returns
+exactly one path.
+
+### H.2 `@midnight-ntwrk/wallet@5.0.0` cannot pay a fee on these networks
+
+It predates the NIGHT/DUST fee model. Its dependency closure stops at
+`zswap 4.0.0`; it pulls in no `ledger-v8`, and
+
+```
+grep -c dust node_modules/@midnight-ntwrk/wallet-api/dist/types/index.d.ts
+0
+```
+
+Its method names do not match what midnight-js 4.1.1 asks for either:
+`WalletProvider` wants `balanceTx` / `getCoinPublicKey` /
+`getEncryptionPublicKey`, and `MidnightProvider` wants `submitTx`.
+
+**This invalidates an earlier assumption in this repo.** `deploy.ts`
+originally passed that wallet as both providers. It would have failed at
+the first call, and the failure would not have mentioned fees.
+
+### H.3 What does work: the facade, adapted
+
+`@midnightntwrk/wallet-sdk-facade@4.1.0` splits balancing into three
+steps (`dist/index.d.ts`):
+
+```ts
+balanceUnboundTransaction(tx, { shieldedSecretKeys, dustSecretKey }, { ttl })
+  -> UnboundTransactionRecipe
+signRecipe(recipe, signSegment)   -> BalancingRecipe
+finalizeRecipe(recipe)            -> ledger.FinalizedTransaction
+submitTransaction(tx)             -> TransactionIdentifier
+```
+
+Composing the first three gives exactly `WalletProvider.balanceTx`, and
+the fourth is `MidnightProvider.submitTx`. That adapter is
+`onchain/src/providers.ts`. `DEFAULT_TTL_MS` there is one hour, copied
+from `wallet-sdk-facade/dist/index.js:101` rather than guessed.
+
+### H.4 State shapes that are easy to get wrong
+
+Both of these were got wrong first and corrected against the type
+declarations:
+
+| Read | Wrong | Right |
+|---|---|---|
+| is a NIGHT utxo registered for DUST | `u.registeredForDustGeneration` | `u.meta.registeredForDustGeneration` — `UtxoWithMeta` is `{ utxo, meta }` (`wallet-sdk-unshielded-wallet/dist/v1/UnshieldedState.d.ts`) |
+| DUST balance | `state.dust.walletBalance` | `state.dust.balance(new Date())` — dust accrues, so the balance is a function of time (`wallet-sdk-dust-wallet/dist/DustWallet.d.ts`) |
+
+The first is the dangerous one: `undefined !== true` is `true`, so the
+wrong read classifies every utxo as unregistered and silently re-registers.
+
+### H.5 A fresh wallet's sync is slow, and it is worth instrumenting
+
+`waitForSyncedState()` reports nothing while it runs. Every wallet state
+exposes `progress: SyncProgress` with `appliedIndex` / `highestIndex`
+(`wallet-sdk-abstractions/dist/SyncProgress.d.ts`), so `waitSynced()` in
+`facade.ts` subscribes and prints them.
+
+Measured on this machine, a fresh wallet on **preprod**: the shielded
+wallet reached 1,466,444 in about nine minutes, then the dust wallet
+continued on its own at roughly 1,300–2,500 items per minute. Preview was
+markedly slower per item over the same period. These are observations from
+one machine on one day, not published figures.
+
+The instrumentation earned itself immediately: the first preprod run
+crashed *after* a full sync, on `JSON.stringify` of a balance record
+containing `bigint`. Without progress output the half hour before the
+crash was indistinguishable from a hang.
+
+### H.6 Splitting proving from paying, for browser wallets
+
+`midnight-js-contracts` exports `createUnprovenCallTx` and
+`createCallTxOptions` alongside the all-in-one `callTx` interface. Proving
+the result gives `Transaction<SignatureEnabled, Proof, PreBinding>`
+(`midnight-js-types/dist/proof-provider.d.ts`), which is precisely the
+type the DApp Connector's `balanceUnsealedTransaction` documents as its
+input (`@midnight-ntwrk/dapp-connector-api@4.0.1`, `dist/api.d.ts`).
+
+So a backend can prove a call and a browser wallet can pay for and relay
+it. That is what `ChainClient.prepare` and `POST /prepare` do.
+
+Connector API surface actually used, all verified in `dist/api.d.ts` of
+version 4.0.1: `connect(networkId)`, `hintUsage`, `getConnectionStatus`,
+`getUnshieldedAddress`, `getUnshieldedBalances`, `getDustBalance`,
+`balanceUnsealedTransaction`, `submitTransaction`. Wallets inject under
+`window.midnight` keyed by UUID, not by name (`dist/globals.d.ts`), so
+discovery iterates `Object.values`.
+
+**Not assumed to exist:** `getProvingProvider` is in the type definition,
+but a wallet may not implement it — Lace is reported not to. Nothing here
+depends on it; proving stays on the local proof server.
+
+### H.7 Two balancing paths, one of which signs itself
+
+These two look interchangeable and are not:
+
+```ts
+// Dust registration — DO NOT sign again.
+const recipe = await wallet.registerNightUtxosForDustGeneration(utxos, vk, sign);
+const tx     = await wallet.finalizeRecipe(recipe);
+
+// Balancing a contract call — MUST sign.
+const recipe = await wallet.balanceUnboundTransaction(tx, keys, { ttl });
+const signed = await wallet.signRecipe(recipe, sign);
+const final  = await wallet.finalizeRecipe(signed);
+```
+
+`registerNightUtxosForDustGeneration` delegates to
+`createDustActionTransaction`, whose step 5 is (verbatim from
+`wallet-sdk-facade/dist/index.js:286`):
+
+> Sign via the standard signRecipe pathway, which now stamps both the
+> unshielded offers and the dust registration.
+
+`balanceUnboundTransaction` (same file, line 357) has no signing step at
+all — it balances and returns.
+
+An earlier version of `register-dust.ts` here added a `signRecipe` call to
+the registration path, by symmetry with the balancing path. It was removed
+before it ever ran. Worth recording because the symmetry is the trap: the
+two call sites *should* look different, and a tidy-up that makes them
+match breaks one of them.
+
+### H.8 Submission drops its own socket, and the fix is verify-then-retry
+
+Submitting to preview failed twice with:
+
+```
+SubmissionError: Transaction submission error
+  cause: SubmissionError: Transaction submission failed
+    at PolkadotNodeClient.js:86
+    cause: Error: disconnected from wss://rpc.preview.midnight.network/: 1000:: Normal Closure
+```
+
+**The endpoint is not the problem.** A plain WebSocket held open against
+the same URL for 40 seconds, polling `system_health` every 8s, never
+closed:
+
+```
+1.5s  open
+1.7s  #2 Midnight Preview
+3.0s  #1 {"peers":14,"isSyncing":false,"shouldHavePeers":true}
+3.0s  #3 chain_getHeader number 0x9dd7f
+37.5s done, readyState=1 (1 = still open)
+```
+
+The closure comes from inside the SDK. `sendMidnightTransaction` ends with
+`Stream.ensuring(Effect.promise(() => this.api.disconnect()))`, and every
+other operation on the same `ApiPromise` — `getGenesis`, for instance —
+carries its own `Effect.ensuring(disconnect)`. One `PolkadotNodeClient` is
+built eagerly at `WalletFacade.init` and shared, so a finalizer belonging
+to some other operation can close the socket a submission is still using.
+Consistent with what was observed: a wallet that had been running for an
+hour submitted and got a *node-level* rejection (the transaction arrived);
+a wallet that submitted within a minute of start got a closed socket
+(it did not).
+
+**What works:** retry, but verify first. A submission that failed on the
+way back may have succeeded on the way out, so a blind retry can
+double-submit. `provision.ts` classifies the failure, waits, re-reads the
+chain to ask whether it landed, and only then retries:
+
+```
+registration: attempt 1 lost its connection — checking whether it landed
+registration: it did not land, retrying
+registered. tx 0075f564191daa36af67bdd41e7b56055b3cb76f243f94b12d140c5b78106eef1d
+```
+
+**One trap in classifying the error.** Effect wraps failures in a
+`FiberFailure` whose chain is an Effect `Cause`, not `Error.cause`. Walking
+`.cause` stops at the first link, reads only "Transaction submission
+error", and classifies every transport failure as a chain rejection — so
+the retry never fires and the log shows nothing. `util.inspect(e, { depth:
+8 })` renders the whole chain, which is what the check reads.
+
+### H.9 Two copies of a WASM package, and the error that finally says so
+
+The deployment succeeded. The first contract CALL then failed with:
+
+```
+Error: Unexpected error executing scoped transaction '<unnamed>':
+       Error: expected instance of StateValue
+  at _assertClass (.../midnight-js-protocol/node_modules/
+                   @midnight-ntwrk/onchain-runtime-v3/..._bg.js:992)
+  at new ChargedState (..._bg.js:1061)
+  at TransactionContextImpl[MergeUnsubmittedCallTxData]
+```
+
+The path in that trace is the answer: `midnight-js-protocol/node_modules/
+@midnight-ntwrk/onchain-runtime-v3`. There were two copies of the runtime:
+
+```
+3.1.0  node_modules/@midnight-ntwrk/onchain-runtime-v3
+3.0.0  node_modules/@midnight-ntwrk/midnight-js-protocol/
+       node_modules/@midnight-ntwrk/onchain-runtime-v3
+```
+
+`compact-runtime@0.16.0` asks for `^3.0.0`, `midnight-js-protocol@4.1.1`
+pins exactly `3.0.0`. npm satisfied the loose range with 3.1.0, hoisted it,
+and nested 3.0.0 for the strict one. A `StateValue` built by the contract
+(3.1.0) is then not `instanceof` the `StateValue` that `ChargedState`
+checks against (3.0.0).
+
+**Pinning the version is not sufficient.** An `overrides` entry alone left
+two copies of 3.0.0 nested in different places — same version, still two
+WASM instances, same failure. `npm dedupe` afterwards is what collapses
+them to one hoisted copy.
+
+```json
+"overrides": { "@midnight-ntwrk/onchain-runtime-v3": "3.0.0" }
+```
+```
+npm install && npm dedupe
+```
+
+**Why it hid until then.** Deploying does not go through
+`mergeUnsubmittedCallTxData`, so the deploy transaction was built,
+proved, submitted and included with two runtimes loaded. Only a circuit
+call crosses the boundary. An earlier check in this session looked for
+duplicate copies of `ledger-v8` and `compact-runtime` and found one each —
+and did not think to look at what *they* depended on.
+
+`scripts/check-single-wasm.sh` now checks every one of them, and CI runs it.
+
+### H.10 The node's error codes are documented, and worth looking up
+
+Two submissions were refused with `1010: Invalid Transaction: Custom error: N`.
+Midnight publishes what those numbers mean, in
+`midnightntwrk/midnight-expert`, at
+`plugins/midnight-status-codes/skills/status-codes/references/node-errors.md`
+— "LedgerApiError codes surfaced via `InvalidTransaction::Custom(u8)`".
+
+| Code | Name | What it says |
+|---|---|---|
+| 192 | `InputsSignaturesLengthMismatch` | "Input count doesn't match signature count" |
+| 117 | `NotNormalized` | "Transaction is not in normal form — most often an idle-devnet zero fee that produced an empty DUST spend set" |
+
+**192** confirmed the double-signing diagnosis in §H.7 rather than leaving
+it a guess: signing an already-signed registration produced more
+signatures than inputs.
+
+**117** was a different problem and one that guessing did not solve. The
+first hypothesis — that the call had been built against contract state the
+indexer had not yet updated — was wrong, and a run that skipped the
+preceding transaction entirely still failed the same way. The real cause is
+in the table: on a near-zero fee schedule the computed fee rounds to zero,
+the wallet then selects no DUST inputs, and a transaction with an empty
+`DustActions` set is malformed. Preview behaves like the "idle devnet" the
+entry describes — the dust registration's own fee was reported as `1`.
+
+The remedy the catalogue gives is a fee floor at wallet construction:
+
+```ts
+costParameters: { feeBlocksMargin: 5, additionalFeeOverhead: 1_000_000n }
+```
+
+`additionalFeeOverhead` is added to the computed fee
+(`wallet-sdk-dust-wallet/dist/v1/Transacting.js:224`), so it cannot
+underpay; it only stops the fee being zero.
+
+**Worth generalising:** two of the three submission failures in this
+session were decodable from a published table, and both were initially
+guessed at instead. Look the number up first.
+
+### H.11 Block time is in SECONDS. The repo assumed milliseconds.
+
+This repo recorded, honestly, that it did not know:
+
+> Block-time units are assumed to be milliseconds; unconfirmed against a
+> live chain.
+
+The assumption was wrong. Two independent confirmations:
+
+**From the runtime source.** `compact-runtime` builds the block context as
+
+```js
+// compact-runtime/dist/circuit-context.js:47
+secondsSinceEpoch: BigInt(time ?? Math.floor(Date.now() / 1_000)),
+```
+
+so the `time` argument of `createCircuitContext` *is* seconds since the
+epoch, and it defaults to the machine clock divided by 1000. The type
+agrees: `BlockContext.secondsSinceEpoch` (ledger-v8.d.ts:313).
+
+**From the chain.** `present()` was called twice against the deployed
+contract, once with `asOf` in each unit, each with attributes and threshold
+in the matching unit so the predicate could not confound the result:
+
+```
+milliseconds   rejected: failed assert: asOf is in the future
+seconds        ACCEPTED — tx 0b8c9ade567c3b7c2cb3520d778129c4ac0af98452109331475a8d27ea020286
+```
+
+**Why no test caught it.** The simulator supplies its own block time. Feed
+it milliseconds and compare against milliseconds and everything agrees;
+54 tests passed for weeks on a unit the chain does not use. A self-
+consistent simulator cannot detect a units error in its own interface —
+only a real chain can, and this is what "not yet deployed" was costing.
+
+**It is not only a matter of the call running.** `freshnessWindow()`
+returned `300000`. Read as milliseconds that is the intended five minutes;
+read as seconds — which is how the chain reads it — it is three and a half
+days. The first deployment carried that window. The window is now `300`.
+
+Everything downstream moved with it: `SECONDS_PER_YEAR`,
+`SECONDS_PER_DAY`, `FRESHNESS_WINDOW_SEC`, the simulator's clock and
+`advance()`, the attribute timestamps, the predicate thresholds, and the
+dates the UI renders. One test caught a literal the search missed —
+`expiresAt: now + 3_600_000n` is one hour in milliseconds and forty-one
+days in seconds — and it failed in the way the repo's own test convention
+predicts: not on the expiry assertion but on the *later* nullifier check,
+because the credential had not expired at all.
+
+### H.12 What provisioning a second network actually costs
+
+Preview is provisioned; preprod is not. That is a scope decision, and these
+are the two measurements behind it.
+
+**Sync size.** The first wallet sync streams every dust event on the
+network, and the two networks are not comparable:
+
+```
+preview     176,094 dust events    ~1 hour
+preprod   1,466,572 dust events    unmeasured; 8.3x the work
+```
+
+The count comes from the sync progress the facade prints
+(`appliedIndex/highestRelevantWalletIndex`); it is the wallet's own view,
+not an estimate. This is why `onchain/src/provision.ts` exists as one
+command rather than three: it syncs once and then does the DUST
+registration and the deploy on that single synced wallet. Running
+`register-dust` and `deploy` separately would sync twice.
+
+It is also why the wallet cache exists. `saveWalletCache` writes
+`serializeState()` for all three wallets to
+`onchain/.wallet-cache.<network>.json`, and a later run restores from it:
+
+```
+starting wallets from cached state…
+  [0.0m] shielded 175811/0 ✓ [offline]  unshielded 0/0 ✓ [offline]  dust 176131/0 ✓
+```
+
+Zero minutes instead of sixty. The cache was added after a run failed on a
+`JSON.stringify` of a bigint *after* a 35-minute sync — the fix for the
+crash took a minute, and the cache is the fix for the class of problem.
+
+**The faucet cannot be scripted.** Preprod's faucet at
+`midnight-tmnight-preprod.nethermind.dev` is a Cloudflare Turnstile page:
+
+```
+$ curl -s .../assets/index-*.js | grep -oE '"/[a-zA-Z0-9/_-]+"|turnstile|captcha'
+"/api"
+captcha
+turnstile
+```
+
+Every POST from curl returns `000` (the connection is dropped before a
+response) except one that reached the Express router and answered
+`Cannot POST /api/request`. So the server is up and the block is at the
+edge. Funding a preprod wallet requires a human with a browser; it is not
+a step a provisioning script can own.

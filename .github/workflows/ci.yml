@@ -2,11 +2,18 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    # The default branch of this repository is `master`. An earlier version
+    # of this file listed `main`, so pushes never triggered it and the
+    # badge meant nothing.
+    branches: [master]
   pull_request:
 
 jobs:
-  build-and-test:
+  # -------------------------------------------------------------------
+  # The reference contract: compiler 0.34.0, language 0.26.
+  # -------------------------------------------------------------------
+  reference:
+    name: reference contract (language 0.26)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -37,8 +44,123 @@ jobs:
       - name: Compile the contract
         run: npm run build:contract:fast
 
+      - name: Typecheck
+        run: npx tsc --noEmit -p tsconfig.json
+
       - name: Run the test suite
         run: npm test
 
       - name: Build the demo UI
         run: npm run build:web
+
+  # -------------------------------------------------------------------
+  # The deployable port: compiler 0.31.1, language 0.23.
+  # -------------------------------------------------------------------
+  # A separate job, not a step in the one above, because the two need
+  # different compilers AND different dependency trees -- compact-runtime
+  # 0.19.0 against 0.16.0, which cannot coexist. Running them together
+  # would mean one of them silently testing the wrong runtime.
+  onchain:
+    name: deployable port (language 0.23)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install the Compact toolchain
+        run: |
+          curl --proto '=https' --tlsv1.2 -LsSf \
+            https://github.com/midnightntwrk/compact/releases/latest/download/compact-installer.sh | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      # --no-set-default matters: build.sh invokes this exact binary by
+      # path and leaves whatever the global default is alone.
+      - name: Install compiler 0.31.1
+        run: compact update 0.31.1 --no-set-default
+
+      - name: Install dependencies
+        working-directory: onchain
+        run: npm ci
+
+      - name: Compile the port
+        working-directory: onchain
+        run: npm run build:fast
+
+      - name: Typecheck
+        working-directory: onchain
+        run: npm run typecheck
+
+      - name: Exactly one copy of each WASM package
+        run: bash scripts/check-single-wasm.sh
+
+      - name: Run the port's test suite
+        working-directory: onchain
+        run: npm test
+
+  # -------------------------------------------------------------------
+  # Claims that must not drift.
+  # -------------------------------------------------------------------
+  # Three invariants of the repository itself. Each has been broken by
+  # accident before, and no test in either suite would catch any of them.
+  # The third one cost a deployment.
+  hygiene:
+    name: repository hygiene
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: No wallet seed is committed
+        run: |
+          if git ls-files --error-unmatch 'onchain/.seed.*' 2>/dev/null; then
+            echo "A wallet seed is tracked by git. These control real testnet funds." >&2
+            exit 1
+          fi
+          echo "no seed files tracked"
+
+      - name: Every disclose() carries a justification
+        run: |
+          # A disclose() without a comment near it is the one thing that can
+          # move a private value across the boundary unreviewed.
+          missing=0
+          for f in contracts/src/*.compact onchain/contract/*.compact; do
+            [ -f "$f" ] || continue
+            while IFS=: read -r line _; do
+              start=$(( line > 6 ? line - 6 : 1 ))
+              if ! sed -n "${start},${line}p" "$f" | grep -q '//'; then
+                echo "$f:$line — disclose() with no comment above it" >&2
+                missing=1
+              fi
+            done < <(grep -n 'disclose(' "$f")
+          done
+          exit $missing
+
+      - name: The freshness window agrees in all four places
+        run: |
+          # Block time is in SECONDS. The repo was written in milliseconds and
+          # 54 tests passed, because a simulator that supplies its own clock
+          # compares milliseconds against milliseconds and never notices. The
+          # chain noticed: freshnessWindow() of 300000 is 3.5 days, not 5
+          # minutes, and a deployment was thrown away over it. Nothing else in
+          # this repository can catch a disagreement between these four
+          # numbers, so this step exists. See RESEARCH.md §H.11.
+          windows=$(
+            for f in contracts/src/credential.compact onchain/contract/credential.compact; do
+              sed -n '/pure circuit freshnessWindow/,/}/p' "$f" |
+                grep -oE 'return[[:space:]]+[0-9_]+' | tr -d ' _' | sed 's/return//'
+            done
+            grep -hoE 'FRESHNESS_WINDOW_SEC = [0-9_]+' core/engine.ts onchain/src/engine.ts |
+              grep -oE '[0-9_]+$' | tr -d '_'
+          )
+          echo "$windows"
+          if [ "$(echo "$windows" | wc -l)" -ne 4 ]; then
+            echo "expected four values; one of the four sites was not found" >&2
+            exit 1
+          fi
+          if [ "$(echo "$windows" | sort -u | wc -l)" -ne 1 ]; then
+            echo "the freshness window disagrees between contract and engine" >&2
+            exit 1
+          fi
+          echo "all four agree"

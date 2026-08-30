@@ -2,7 +2,9 @@
 
 A credential **lifecycle** layer on [Midnight](https://midnight.network) — issuance, per-verifier unlinkability, revocation and expiry — written in Compact. KYC is the demo sitting on top, not the contribution.
 
-**The issuer in this project is mocked.** It signs whatever attribute values it is handed and performs no identity verification of any kind. We make no claim of real-world identity assurance. What *is* real is everything underneath: the Schnorr attestation is verified inside the zero-knowledge circuit, and the lifecycle, revocation, unlinkability and expiry are genuine contract logic, verified by a 54-test suite that drives the compiled circuits. It has not yet been deployed to a network.
+**The issuer in this project is mocked.** It signs whatever attribute values it is handed and performs no identity verification of any kind. We make no claim of real-world identity assurance. What *is* real is everything underneath: the lifecycle, revocation, unlinkability and expiry are genuine contract logic, verified by 82 tests that drive the compiled circuits.
+
+The contract is **deployed and running on Midnight preview**, at address `d62c8012e3e71bd70fe9ddd95cb43fa4f541e7ef520a032df778472693c465f3` (deploy tx `b7faa7229ac4c43acb69dbf44840d337e125a583ad1b310ecfd968a310d0a68b`, block 647,012). Every circuit has been executed there against real block time, with a real zero-knowledge proof and real DUST fees. It is **not** on preprod yet — that network's first wallet sync is a multi-hour job (1,466,572 dust events against preview's 176,094).
 
 ---
 
@@ -18,18 +20,21 @@ Most zk-KYC demos stop at `prove(age > 18)`. That is the easy part. The hard par
 
 Be sceptical of any claim not in the left column.
 
+There are **two contracts**, and the distinction matters for every row below. `contracts/src/credential.compact` is the reference version; it verifies a Schnorr attestation in-circuit but targets an on-chain runtime no live network runs yet. `onchain/contract/credential.compact` is the port that is actually deployed, and it pays for that with a weaker issuer-authentication model. Both are in the repo; neither is hidden.
+
 | Real | Mocked or simplified |
 |---|---|
-| Schnorr signature verification **inside the ZK circuit** (`jubjubSchnorrVerify`) | The issuer's *identity assurance*. It signs on request, checks nothing |
 | Per-verifier nullifiers, and their unlinkability | — |
 | Merkle active-set membership proof, verified in-circuit | — |
 | Revocation by leaf tombstone + root-history reset | — |
 | Expiry enforced in-circuit against block time | — |
 | Attribute values never touching public state (compiler-enforced) | — |
-| All four circuits compile and produce proving keys | The demo runs the contract against an **in-memory ledger, not a Midnight node**. Constraints are enforced; no ZK *proof* is generated and nothing is on chain |
-| 54 tests driving the real compiled circuits | No test deploys to Preprod |
+| Deployed on Midnight **preview**: real proofs, real DUST fees, real block inclusion | Not on **preprod** yet |
+| Schnorr signature verification **inside the ZK circuit** (`jubjubSchnorrVerify`) — reference contract | The issuer's *identity assurance*. It signs on request, checks nothing |
+| — | The **deployed** contract replaces that signature check with a capability secret, because Compact language 0.23 has no signature-verification primitive (RESEARCH.md §G.3). Attestations are therefore not transferable and not verifiable offline |
+| 82 tests driving the real compiled circuits (54 reference, 28 port) | The test suites run against a local simulator, not a node. The on-chain path is covered by `npm run lifecycle`, which is a scripted run, not a test suite |
 
-The UI reports **circuit execution time**, not proving time, and says so on screen. Nothing in this repo pretends a proof was generated when it was not.
+The UI reports **proving time and total time separately**, labelled, and shows the transaction hash for anything that touched the chain. In simulator mode it reports circuit execution time and says so on screen. Nothing in this repo pretends a proof was generated when it was not.
 
 ---
 
@@ -80,13 +85,22 @@ The security boundary is the public/private split. Everything below the line sta
 ## Repository layout
 
 ```
-contracts/src/credential.compact    the lifecycle contract
+contracts/src/credential.compact    the lifecycle contract (reference)
 contracts/src/Predicates.compact    predicate module (add predicates here)
 core/engine.ts                      simulator + mock-issuer crypto, shared by all consumers
 issuer/mockIssuer.ts                the mock credential authority (labelled in the code)
 tests/                              54 tests, one file per invariant — see tests/README.md
 web/                                three-persona demo UI + contract host
 pitch/                              video script, slide deck (deck.html), self-audit
+
+onchain/contract/credential.compact the deployable port — see "Two contracts"
+onchain/src/chain.ts                the same four circuits, against a live network
+onchain/src/providers.ts            wallet adapter: DUST-era fees for midnight-js
+onchain/src/service.ts              HTTP front for the deployed contract (:4100)
+onchain/src/lifecycle-demo.ts       the whole demo on chain, printing tx hashes
+onchain/tests/                      28 tests for the port
+onchain/deployments/                one file per network actually deployed to
+
 RESEARCH.md                         verified Compact API surface (Phase 0)
 DESIGN.md                           threat model, invariants, cryptographic choices
 ```
@@ -116,9 +130,9 @@ export PATH="$HOME/.local/bin:$PATH"    # see note below
 
 > **Why 0.34.0, and what it costs.** The matrix pins `compact compile` 0.31.1 for all networks, but that compiler is Compact **language 0.23**, which has *no in-circuit signature verification at all* — not Schnorr, not ECDSA (verified empirically, [RESEARCH.md §F.2](RESEARCH.md)). This targets 0.34.0 / language 0.26, where `jubjubSchnorrVerify` is a stdlib builtin.
 >
-> **The cost is real and worth stating plainly.** Compiler 0.34.0 pulls `compact-runtime` 0.19.0, which depends on `onchain-runtime-v4 4.0.0-rc.3` — a release candidate. Every live network runs on-chain runtime **3.0.0**, and the newest stable proof server is `8.1.0` against `9.0.0-rc.7` for v4. **This contract therefore cannot be deployed to Preprod or Mainnet until Midnight's v4 stack leaves release candidate.** It targets the next protocol version, not the current one. See [RESEARCH.md §F.7c](RESEARCH.md) for the full dependency trace.
+> **The cost is real and worth stating plainly.** Compiler 0.34.0 pulls `compact-runtime` 0.19.0, which depends on `onchain-runtime-v4 4.0.0-rc.3` — a release candidate. Every live network runs on-chain runtime **3.0.0**, and the newest stable proof server is `8.1.0` against `9.0.0-rc.7` for v4. **The reference contract therefore cannot be deployed to any live network** until Midnight's v4 stack leaves release candidate. It targets the next protocol version, not the current one. See [RESEARCH.md §F.7c](RESEARCH.md) for the full dependency trace.
 >
-> The alternative was hand-rolling Jubjub Schnorr in both Compact *and* TypeScript — `compact-runtime` 0.16.0 exports no signing primitives at all — which is bespoke elliptic-curve code in the component whose entire job is trust.
+> That is why there is a second contract — see [Two contracts](#two-contracts) below. It gives up the signature check to reach the networks that exist today, and says so in its own header.
 
 ### 2. Build and test
 
@@ -151,6 +165,152 @@ Then open **http://localhost:4000**. For frontend hot-reload during development 
 
 `scripts/demo-seed.sh` drives the same flow over HTTP if you want it pre-populated.
 
+That is the simulator. Everything so far runs locally and generates no proofs.
+
+### 5. Run it against the real chain
+
+The contract is already deployed on preview, so this drives the existing
+deployment rather than making a new one. You need Docker for the proof server
+and a funded wallet.
+
+```bash
+docker run -d -p 6300:6300 midnightntwrk/proof-server:8.1.0
+
+cd onchain
+npm install
+npm run build                  # compiles the port and generates proving keys
+npm run address -- preview     # prints the wallet address and the faucet URL
+```
+
+Paste that address into the faucet it prints, wait for the NIGHT to arrive,
+then:
+
+```bash
+npm run provision -- preview   # sync, register NIGHT for DUST, deploy
+npm run lifecycle -- preview   # the nine-step demo, on chain
+npm run service   -- preview   # HTTP front on :4100 for the web UI
+```
+
+With the service running, the web UI's engine selector switches from
+**Simulator** to **On chain**; the on-chain option stays disabled, with the
+reason shown, when :4100 is not answering. In on-chain mode every action
+displays its transaction hash and reports proving time separately from total
+time.
+
+Three things about that flow are worth knowing before you start it.
+
+**The first sync is slow and it is not a hang.** A fresh wallet streams every
+dust event on the network — about 176,000 on preview, roughly an hour. Progress
+is printed each minute. It is cached to `onchain/.wallet-cache.<network>.json`
+afterwards, so later runs start in seconds.
+
+**`provision` is one command on purpose.** `register-dust` and `deploy` each
+open a wallet and wait for a full sync; running them in sequence syncs twice.
+Every step of `provision` checks whether it is needed, so it is safe to re-run
+after a failure.
+
+**NIGHT cannot pay fees.** It has to be registered for DUST generation first,
+which is a transaction of its own, and then DUST accrues over time. `provision`
+does this and waits.
+
+---
+
+## On chain
+
+Deployed on Midnight **preview**:
+
+| | |
+|---|---|
+| Contract | `d62c8012e3e71bd70fe9ddd95cb43fa4f541e7ef520a032df778472693c465f3` |
+| Deploy tx | `b7faa7229ac4c43acb69dbf44840d337e125a583ad1b310ecfd968a310d0a68b` |
+| Block | 647,012 |
+| Indexer | `https://indexer.preview.midnight.network/api/v4/graphql` |
+
+Every claim here is a transaction you can look up. `npm run lifecycle -- preview`
+runs the nine-step demo from §5 against that contract. This is its output, with
+`@polkadot` transport log lines removed and nothing else changed:
+
+```
+1. Register the issuer
+   already registered on this contract — skipping
+
+2. Issue a credential to Alice
+   tx      d4200c9ce31afa1416abdf71916e8e029041e2ba25628b5d893a846fe7cfad73
+   block   647132
+   timing  2304 ms proving · 117.7s to inclusion
+   leaf    1
+   the ledger received a commitment. The age, country and tier did not.
+
+3. Present to Alpha Exchange — "is Alice over 18?"
+   tx      6c0a7991d3c57554d54b6524bba93c0bd09e9554abf5d5d305ea84c83cb29d78
+   block   647139
+   timing  3111 ms proving · 33.3s to inclusion
+   asOf    48s old — 16% of the 300s freshness window
+   nullifier f33d2a828376cd5f704234497784e0cc3165a03e53506ca3e10b97bd7c67ba30
+
+4. Present to Beta Lending — same person, same question
+   tx      155e06dae79134d135ee2ea6f38c6e33bf2b9175076a51359591891db2faf7ad
+   block   647147
+   timing  3080 ms proving · 34.1s to inclusion
+   asOf    41s old — 14% of the 300s freshness window
+   nullifier 2aa99327efe66689821a7ae533521831db51e59618d64da19355858a4696813e
+
+5. Linkage test — can the two verifiers tell it was the same person?
+   bytes in common: 0 of 32
+   ✓ nothing links them
+
+6. Present to Alpha again — must be refused (I4)
+   ✓ refused: failed assert: nullifier already spent this epoch
+
+7. Keep a copy of the Merkle path, then revoke Alice
+   tx      516977dcb37774ebe35d8675560e39514dad4c4edafa493af26e2564c37d48ae
+   block   647154
+   timing  1333 ms proving · 35.5s to inclusion
+   root history cleared, epoch advanced
+
+8. Present with the pre-revocation path — must be refused (I2)
+   ✓ refused: failed assert: credential is not in the active set (revoked or path stale)
+
+9. Rebuilding the path is impossible — the leaf is gone
+   ✓ leaf not present in the active set
+
+All steps behaved as specified, on a live network.
+```
+
+Step 1 skips because this was the second run against the same contract — the
+issuer was registered by the first, in tx
+`6bdd1253c16c27c485d8a1eb9e585c5699cf3eef4b9f43b86b5186c021b5b04f`, block
+647,061. Every step checks whether it is needed, so the script is safe to
+re-run against a chain that keeps its state; the holder and verifier key
+material is random per run, so the presentations do not collide with the
+previous run's nullifiers.
+
+Three things in that transcript are worth reading closely.
+
+**Steps 6 and 8 are the point.** A run that only shows the happy path shows
+very little. The script exits non-zero if either refusal fails to happen, and
+it checks the *message*, not merely that something was thrown — a refusal
+arriving from a later check than the intended one would hide a regression in
+the earlier one.
+
+**Proving takes 1.2–3.1 seconds; inclusion takes 33–118.** The proof is not the
+bottleneck — the chain is. `present()` is the most expensive circuit, which is
+what six checks inside one proof costs; across both runs it ranged 3,080–5,076 ms.
+
+The same flow was then driven through the demo UI's own HTTP API, in on-chain
+mode, to confirm the interface reaches the chain rather than only the script
+does — issuance in block 647,236 (tx `9ccfdd92…`), presentations to the two
+verifiers in blocks 647,245 and 647,256 with unrelated nullifiers
+(`13a00441…` and `585b9b53…`), a replay refused, revocation in block 647,303
+(tx `81f0492f…`), and the presentation after it refused.
+
+**`asOf` was 48 seconds old — 16% of the 300-second window.** That percentage
+is why the first deployment was discarded rather than kept: it shipped a window
+of 300,000 seconds (3.5 days), because the codebase treated block time as
+milliseconds and a self-consistent simulator cannot detect a unit error at its
+own boundary. 54 tests passed against it. The superseded deployment record is
+kept, with its reason, in `onchain/deployments/superseded/`.
+
 ---
 
 ## Ecosystem context
@@ -165,14 +325,89 @@ The thing none of them provide is the lifecycle: issue, prove-unlinkably, revoke
 
 ---
 
+## Two contracts
+
+This repository contains the lifecycle engine twice, and the difference
+between the two copies is the whole story of what it costs to deploy
+something today.
+
+| | `contracts/src/credential.compact` | `onchain/contract/credential.compact` |
+|---|---|---|
+| Role | **Reference** — the design as intended | **Deployable port** |
+| Compiler / language | 0.34.0 / 0.26 | 0.31.1 / **0.23** |
+| Runtime | compact-runtime 0.19.0 → on-chain runtime v4 (RC) | compact-runtime 0.16.0 → on-chain runtime **v3** |
+| Deployable | No — every live network runs v3 | Yes; that is why it exists |
+| Issuer authority | Jubjub Schnorr signature, verified in-circuit | **Proof of knowledge** of a secret whose digest is in ledger state |
+| Tests | 54 | 28 |
+
+**Why the mechanism had to change.** Compiler 0.31.1 accepts only language
+0.23, and language 0.23 has no in-circuit signature verification of any
+kind. Nine candidate builtin names were tried; all nine are unbound
+([RESEARCH.md §G.3](RESEARCH.md)). So the port replaces the signature with
+a capability secret.
+
+**What that costs, stated rather than implied.** A capability secret is
+not a public key. There is no transferable attestation, nothing a third
+party can verify offline, and anyone who learns the secret can issue and
+revoke. The invariants survive with different mechanics — I6 and I7 become
+secret-knowledge tests instead of forgery tests — but the security
+argument is weaker, and the file's own header says so.
+
+### Deploying it
+
+Fees on the current stack are paid in DUST, which is generated by
+registering NIGHT; NIGHT alone cannot pay for anything. Each step below
+checks its own preconditions rather than assuming them.
+
+```bash
+bash scripts/proof-server.sh start        # local prover, never a remote one
+cd onchain
+npm install
+npm run build                             # compile + proving keys
+
+npm run address   -- preview              # print the address to fund
+#   fund it at the faucet, then:
+npm run provision -- preview              # register DUST and deploy, one sync
+npm run lifecycle -- preview              # the whole demo, on chain, with tx hashes
+```
+
+**Why `provision` rather than `dust` then `deploy`.** Those two commands
+exist and still work, but each opens a wallet and waits for a full sync.
+A fresh wallet applies every event on the chain, and doing that twice is
+the single most expensive mistake available here. `provision` syncs once
+and then does both, skipping whichever step is already done, so it is safe
+to re-run.
+
+**How slow the first sync is depends on the network.** Measured on one
+machine: preview's dust stream is about 176,000 events and took roughly an
+hour; preprod's is about 1,467,000 and takes many hours. The dust stream is
+the bottleneck by an order of magnitude — the shielded wallet finished
+preprod's 1,466,444 events in about nine minutes. Wallet state is cached to
+`onchain/.wallet-cache.<network>.json` the moment the first sync completes,
+so every later run starts in seconds.
+
+Driving the deployed contract from the demo UI needs one more process:
+
+```bash
+npm run service -- preview                # on-chain service on :4100
+```
+
+With it running, the sidebar's engine switch offers the network. Every
+action then generates a real proof and waits for a real block, and the
+interface relabels its timings accordingly — proving time, not circuit
+execution.
+
+---
+
 ## Roadmap
 
-**Wave 1 (this submission)** — issuance, one predicate family, per-verifier nullifiers with unlinkability tests, Merkle-based non-revocation, expiry, 51-test suite, three-persona demo.
+**Wave 1 (this submission)** — issuance, one predicate family, per-verifier nullifiers with unlinkability tests, Merkle-based non-revocation, expiry, 82 tests, three-persona demo, and the port deployed and exercised on preview.
 
 **Wave 2**
 - Credential renewal without full re-issuance
 - Verifier SDK so a third party can integrate without reading the contract
-- Deployment to Preprod, retiring the "runtime 0.19.0 untested on chain" risk
+- **Lace signs the contract calls.** The DApp Connector path is written but has never run against an installed wallet; today the service's own wallet pays and signs
+- Preprod, once its faucet can be reached without a human in a browser
 - Batched revocation, to amortise the path-refresh cost
 
 **Wave 3**
@@ -190,9 +425,12 @@ Summarised here, argued in full in [DESIGN.md](DESIGN.md).
 - Revocation invalidates **every** holder's cached Merkle path, not just the revoked one. Holders must refresh.
 - An issuer can still cause churn by revoking its own live credentials, since every revocation resets history for everyone.
 - Presenting discloses **which issuer** attested the credential, though not which credential.
-- **The contract cannot currently be deployed to any live network.** It compiles against the v4 on-chain runtime, which is still a release candidate; the networks run v3. The demo therefore runs against an in-memory ledger and generates no ZK proofs.
+- **The reference contract cannot be deployed to any live network.** It compiles against the v4 on-chain runtime, which is still a release candidate; the networks run v3. What is deployed is the language-0.23 port in `onchain/`.
+- **The deployed port authenticates issuers with a shared capability secret, not a signature.** Anyone who learns that secret can issue and revoke. This is a real weakening, forced by the absence of any signature primitive in language 0.23, and it is recorded in the header of the contract file itself.
+- **The secret used by the deployed instance is public.** `onchain/src/service.ts` uses `ADMIN_SECRET = bytes32(1)` and issuer `makeIssuer(1n)`, both derived from constants in this repository, so anybody reading it can issue and revoke credentials on the contract at `d62c8012…c465f3`. That is deliberate — the deployment is a demonstration anyone can inspect and reproduce, not a service holding anything of value — but it means the live instance offers **no** issuer authority in practice, on top of the weaker authority the mechanism offers in principle. A real deployment would generate the secret out of band and never commit it.
 - The `asOf` freshness window grants up to 5 minutes of grace past expiry.
-- Block-time units are assumed to be milliseconds; unconfirmed against a live chain.
+- **Preview is the only network targeted.** Preprod was scoped out deliberately, for two measured reasons: its first wallet sync is 1,466,572 dust events against preview's 176,094, and its faucet is behind a Cloudflare Turnstile captcha, so provisioning it cannot be automated. Nothing in the code is preview-specific — `onchain/src/network.ts` carries preprod's endpoints, and `npm run provision -- preprod` is the same command — but it has not been run, so do not claim it works.
+- Wallet state is cached to `onchain/.wallet-cache.<network>.json` so a failure late in a long sync does not cost a full rescan. That cache is a convenience, not a security boundary — delete it if you do not trust its contents.
 
 ## Licence
 

@@ -1,5 +1,8 @@
 node_modules/
-contracts/managed/
 web/dist/
 *.log
 .DS_Store
+
+# Build artefacts: proving keys and zkIR, large and reproducible from source.
+contracts/managed/
+onchain/managed/

@@ -46,7 +46,7 @@ Negative tests assert on the **specific** rejection message, not merely that som
 |---|---|
 | rejects a credential whose expiry is already in the past | Basic expiry enforcement |
 | rejects a credential that expires while it is held | Expiry is evaluated at presentation time, not issuance time |
-| accepts a credential expiring one millisecond in the future | The boundary is not off by one in the rejecting direction |
+| accepts a credential expiring one second in the future | The boundary is not off by one in the rejecting direction |
 
 ### I4 — replay
 
@@ -99,7 +99,7 @@ Full lifecycle; all three predicates on one credential; five holders under one i
 | Group | Covers |
 |---|---|
 | access control | non-admin registration, duplicate issuer id, revocation by an unregistered issuer, **revoking an empty leaf index**, **one issuer revoking another issuer's credential**, **overwriting a live credential by slot reuse** |
-| predicate boundaries | age exactly at / one ms below / well above threshold; birth timestamp in the future; tier at, below and above; country outside the set; **zero padding in the allowed-country list must not match**; unknown predicate id fails closed |
+| predicate boundaries | age exactly at / one second below / well above threshold; birth timestamp in the future; tier at, below and above; country outside the set; **zero padding in the allowed-country list must not match**; unknown predicate id fails closed |
 | `asOf` freshness | future `asOf`; `asOf` older than the window; `asOf` just inside the window; **back-dating `asOf` to resurrect an expired credential** |
 | malformed Merkle paths | tampered sibling; flipped direction bits; path for a never-issued credential |
 | attribute tampering | altered `kycTier`; swapped blinding factor |
@@ -128,9 +128,13 @@ This is the exact trap the Midnight docs warn about — *"To actually enforce th
 
 **Asserted in the design but not covered here:**
 
-- **Runtime proving.** The simulator executes circuit logic and enforces every `assert`, but does not generate real ZK proofs. Circuit semantics are verified; prover/verifier behaviour and proving latency are not.
-- **On-chain behaviour.** No test deploys to Preprod. Gas, transaction finalisation, and concurrent access are untested.
-- **Block-time units.** The suite is internally consistent in milliseconds, but nothing here confirms the chain's `blockTime` uses the same unit. If it does not, the 5-minute freshness window is the wrong size — though the ordering logic still holds.
+- **Runtime proving.** The simulator executes circuit logic and enforces every `assert`, but does not generate real ZK proofs. Circuit semantics are verified here; proving is exercised by `npm run lifecycle -- preview` in the `onchain/` package instead, which measured 1.2–5.1 seconds per circuit against the deployed contract.
+- **On-chain behaviour.** No test in this suite touches a network. Transaction finalisation and fees are covered by the lifecycle script, not by a test; concurrent access is covered by nothing.
+- **Block-time units.** ~~The suite is internally consistent in milliseconds, but nothing here confirms the chain's `blockTime` uses the same unit.~~
+
+  **This limitation was real, and it fired.** Block time is seconds. The suite was internally consistent in milliseconds and 54 tests passed for weeks, because the simulator supplies its own clock: milliseconds in, milliseconds compared, everything agrees. `freshnessWindow()` returned `300000`, which the chain reads as three and a half days rather than five minutes, and a deployment was discarded over it.
+
+  The general lesson is worth more than the fix: **a self-consistent simulator cannot detect a unit error at its own interface.** No test written against it could have caught this, however adversarial. What caught it was a real chain rejecting a real call. The units are now checked in CI instead — a test suite was the wrong tool, so the guard belongs somewhere a test suite is not.
 
 ## A second round of bugs the suite surfaced
 
