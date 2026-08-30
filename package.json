@@ -12,7 +12,8 @@
     "dev:chain": "tsx watch web/server.ts",
     "dev:web": "vite --config web/vite.config.ts",
     "dev": "concurrently -n chain,web -c cyan,magenta \"npm:dev:chain\" \"npm:dev:web\"",
-    "build:web": "vite build --config web/vite.config.ts"
+    "build:web": "vite build --config web/vite.config.ts",
+    "dev:onchain": "npm --prefix onchain run service -- preview"
   },
   "devDependencies": {
     "@types/cors": "^2.8.19",

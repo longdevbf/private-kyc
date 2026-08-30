@@ -1,24 +1,62 @@
 import { useState } from 'react';
-import { api, type DemoState, type Result } from '../api.js';
+import { api, runViaWallet, type DemoState, type Result } from '../api.js';
 import { IconCheck, IconCross, IconInbox } from '../components/Icons.js';
+import type { WalletSession } from '../components/WalletConnect.js';
 
-export function Outcome({ r, okText }: { r: Result; okText: string }) {
+/**
+ * The result of one action, with the timing labelled for what it is.
+ *
+ * The label is not decoration. In the simulator the number is circuit
+ * execution and no proof exists; on chain it is proving plus block
+ * inclusion. Reporting the second with the first's wording would be the
+ * single most misleading thing this interface could do, so the caller has
+ * to say which engine produced it.
+ */
+export function Outcome({
+  r,
+  okText,
+  onchain = false,
+}: {
+  r: Result;
+  okText: string;
+  onchain?: boolean;
+}) {
+  const receipt = r.receipt;
   return (
     <div className={`outcome ${r.ok ? 'ok' : 'bad'}`}>
       {r.ok ? <IconCheck size={15} /> : <IconCross size={15} />}
       <span className="body">
         <span>{r.ok ? okText : r.reason}</span>
-        {r.ms !== undefined && (
+        {onchain ? (
           <span className="meta">
-            circuit executed in {r.ms} ms · constraints enforced, no ZK proof generated
+            {receipt?.proveMs !== undefined
+              ? `zero-knowledge proof generated in ${receipt.proveMs} ms`
+              : 'zero-knowledge proof generated'}
+            {r.ms !== undefined && ` · ${(r.ms / 1000).toFixed(1)}s including block inclusion`}
+            {receipt?.txHash && ` · tx ${receipt.txHash.slice(0, 12)}…`}
+            {receipt?.blockHeight && ` · block ${receipt.blockHeight}`}
           </span>
+        ) : (
+          r.ms !== undefined && (
+            <span className="meta">
+              circuit executed in {r.ms} ms · constraints enforced, no ZK proof generated
+            </span>
+          )
         )}
       </span>
     </div>
   );
 }
 
-export function IssuerPanel({ state, refresh }: { state: DemoState; refresh: () => Promise<void> }) {
+export function IssuerPanel({
+  state,
+  refresh,
+  wallet,
+}: {
+  state: DemoState;
+  refresh: () => Promise<void>;
+  wallet?: WalletSession | null;
+}) {
   const [form, setForm] = useState({
     holderName: 'alice', label: 'Alice · national ID',
     ageYears: 30, countryCode: 704, kycTier: 3, validDays: 365,
@@ -26,10 +64,28 @@ export function IssuerPanel({ state, refresh }: { state: DemoState; refresh: () 
   const [busy, setBusy] = useState<string | null>(null);
   const [last, setLast] = useState<(Result & { what: string }) | null>(null);
 
-  async function run(what: string, fn: () => Promise<Result>) {
+  const onchain = state.engine?.mode === 'onchain';
+
+  /**
+   * Run one action.
+   *
+   * If a wallet is connected, connecting IS the opt-in: the action goes
+   * through it and the visitor pays the fee. There is no second toggle,
+   * because a connected wallet that silently pays for nothing would be
+   * the confusing option, not the safe one.
+   */
+  async function run(
+    what: string,
+    fn: () => Promise<Result>,
+    walletAction?: Record<string, unknown>,
+  ) {
     setBusy(what);
     try {
-      setLast({ ...(await fn()), what });
+      const r =
+        wallet && walletAction
+          ? await runViaWallet(wallet.api, walletAction)
+          : await fn();
+      setLast({ ...r, what });
       await refresh();
     } finally {
       setBusy(null);
@@ -51,10 +107,22 @@ export function IssuerPanel({ state, refresh }: { state: DemoState; refresh: () 
           <div>
             <h2>Authorised issuers</h2>
             <p>
-              Publishes the issuer&rsquo;s Jubjub verification key on chain. The
-              contract reads that key from public state when checking an
-              attestation, never from the party presenting — so there is nothing
-              for a hostile prover to substitute.
+              {onchain ? (
+                <>
+                  Publishes a digest of the issuer&rsquo;s secret on chain. The
+                  deployed contract is compiled for language 0.23, which has no
+                  in-circuit signature verification, so authority is proof of
+                  knowledge of that secret rather than a signature. The digest is
+                  read from public state, never from the party calling.
+                </>
+              ) : (
+                <>
+                  Publishes the issuer&rsquo;s Jubjub verification key on chain. The
+                  contract reads that key from public state when checking an
+                  attestation, never from the party presenting — so there is nothing
+                  for a hostile prover to substitute.
+                </>
+              )}
             </p>
           </div>
           <div className="head-act">
@@ -66,16 +134,16 @@ export function IssuerPanel({ state, refresh }: { state: DemoState; refresh: () 
                 <button
                   className="btn primary"
                   disabled={busy !== null}
-                  onClick={() => run('register', api.registerIssuer)}
+                  onClick={() => run('register', api.registerIssuer, { action: 'registerIssuer' })}
                 >
-                  {busy === 'register' ? 'Publishing…' : 'Register key'}
+                  {busy === 'register' ? 'Publishing…' : onchain ? 'Register issuer' : 'Register key'}
                 </button>
               </>
             )}
           </div>
         </div>
         {last?.what === 'register' && (
-          <div className="panel-body"><Outcome r={last} okText="Verification key published to the issuer registry." /></div>
+          <div className="panel-body"><Outcome r={last} onchain={onchain} okText={onchain ? "Issuer registered on chain." : "Verification key published to the issuer registry."} /></div>
         )}
       </section>
 
@@ -84,9 +152,20 @@ export function IssuerPanel({ state, refresh }: { state: DemoState; refresh: () 
           <div>
             <h2>Issue a credential</h2>
             <p>
-              The issuer signs a commitment to these attributes, bound to the
-              holder. Only the commitment reaches the chain — the values below
-              stay with the holder and are never recoverable from public state.
+              {onchain ? (
+                <>
+                  The issuer proves it holds the registered secret, and a leaf
+                  binding the commitment to this holder is inserted. Only that leaf
+                  reaches the chain — the values below stay off it and are not
+                  recoverable from public state.
+                </>
+              ) : (
+                <>
+                  The issuer signs a commitment to these attributes, bound to the
+                  holder. Only the commitment reaches the chain — the values below
+                  stay with the holder and are never recoverable from public state.
+                </>
+              )}
             </p>
           </div>
         </div>
@@ -122,14 +201,14 @@ export function IssuerPanel({ state, refresh }: { state: DemoState; refresh: () 
             <button
               className="btn primary"
               disabled={!state.issuerRegistered || busy !== null}
-              onClick={() => run('issue', () => api.issue(form))}
+              onClick={() => run('issue', () => api.issue(form), { action: 'issue', ...form })}
             >
-              {busy === 'issue' ? 'Signing…' : 'Sign and issue'}
+              {busy === 'issue' ? (onchain ? 'Proving…' : 'Signing…') : 'Sign and issue'}
             </button>
           </div>
 
           {last?.what === 'issue' && (
-            <Outcome r={last} okText="Attestation signed and commitment inserted into the active set." />
+            <Outcome r={last} onchain={onchain} okText={onchain ? "Credential leaf inserted into the active set on chain." : "Attestation signed and commitment inserted into the active set."} />
           )}
         </div>
         {!state.issuerRegistered && (
@@ -185,7 +264,7 @@ export function IssuerPanel({ state, refresh }: { state: DemoState; refresh: () 
                         <button
                           className="btn danger sm"
                           disabled={c.revoked || busy !== null}
-                          onClick={() => run('revoke', () => api.revoke(c.commitment))}
+                          onClick={() => run('revoke', () => api.revoke(c.commitment), { action: 'revoke', commitment: c.commitment })}
                         >
                           Revoke
                         </button>
@@ -200,7 +279,7 @@ export function IssuerPanel({ state, refresh }: { state: DemoState; refresh: () 
 
         {last?.what === 'revoke' && (
           <div className="panel-body">
-            <Outcome r={last} okText="Revoked. Leaf tombstoned, root history cleared, epoch advanced." />
+            <Outcome r={last} onchain={onchain} okText="Revoked. Leaf tombstoned, root history cleared, epoch advanced." />
           </div>
         )}
       </section>

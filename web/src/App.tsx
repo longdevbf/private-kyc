@@ -3,6 +3,9 @@ import { api, type DemoState } from './api.js';
 import { PrivateRegister, PublicRegister } from './components/Inspector.js';
 import { Ambient } from './components/Ambient.js';
 import { Counter } from './components/Counter.js';
+import { ChainStatus } from './components/ChainStatus.js';
+import { EngineSwitch } from './components/EngineSwitch.js';
+import { WalletConnect, type WalletSession } from './components/WalletConnect.js';
 import { IconIssuer, IconHolder, IconVerifier, IconLock, IconRefresh } from './components/Icons.js';
 import { IssuerPanel } from './panels/Issuer.js';
 import { HolderPanel } from './panels/Holder.js';
@@ -35,6 +38,10 @@ export function App() {
   const [persona, setPersona] = useState<Persona>(readHash());
   const [selected, setSelected] = useState<string | undefined>();
   const [error, setError] = useState<string | null>(null);
+  // A connected wallet is a live object with permissions attached, not
+  // serialisable state, so it is held here and passed down rather than
+  // reconstructed per panel.
+  const [wallet, setWallet] = useState<WalletSession | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -42,8 +49,17 @@ export function App() {
       setState(s);
       setError(null);
       setSelected((cur) => (cur && s.holders.some((h) => h.name === cur) ? cur : s.holders[0]?.name));
-    } catch {
-      setError('Cannot reach the contract host on port 4000. Start it with npm run dev:chain.');
+    } catch (e) {
+      // Two different failures reach here and they need different fixes,
+      // so the message is the one the backend actually gave when there is
+      // one. Reporting "start the contract host" while the contract host
+      // is running and the CHAIN service is down sends the reader to the
+      // wrong terminal.
+      setError(
+        e instanceof Error && e.message
+          ? e.message
+          : 'Cannot reach the contract host on port 4000. Start it with npm run dev:chain.',
+      );
     }
   }, []);
 
@@ -119,6 +135,8 @@ export function App() {
         </div>
 
         <div className="nav-foot">
+          <EngineSwitch onChange={refresh} />
+
           {/* The colour system is doing real work, so it is stated rather
               than left to be inferred. */}
           <div className="legend">
@@ -137,8 +155,12 @@ export function App() {
 
           <div className="netcard">
             <div className="netrow">
-              <span className="pulse" />
-              <span className="k">LOCAL LEDGER</span>
+              <span className={`pulse${state.engine?.mode === 'onchain' ? ' live' : ''}`} />
+              <span className="k">
+                {state.engine?.mode === 'onchain'
+                  ? String(state.engine.network ?? 'network').toUpperCase()
+                  : 'LOCAL LEDGER'}
+              </span>
             </div>
             <div className="netrow"><span className="k">epoch</span><span className="v">{p.revocationEpoch}</span></div>
             <div className="netrow">
@@ -171,6 +193,21 @@ export function App() {
             <span className="stat">
               nullifiers <b><Counter value={p.spentNullifiers.length} /></b>
             </span>
+            {/* What is driving THIS page, which is a different claim from
+                what has been deployed somewhere. Never merged. */}
+            <span
+              className={`chainchip${state.engine?.mode === 'onchain' ? ' live' : ''}`}
+              title={
+                state.engine?.mode === 'onchain'
+                  ? `${state.engine.network} · ${state.engine.contractAddress}\n` +
+                    `fees paid by ${state.engine.feePayer}`
+                  : 'The circuits run locally against an in-memory ledger. No proof is generated here.'
+              }
+            >
+              {state.engine?.mode === 'onchain'
+                ? `${state.engine.network} · real proof, real tx`
+                : 'simulator · no proof generated'}
+            </span>
             <span className="mockchip" title={state.mockWarning}>
               <IconLock size={12} /> Mock issuer · no identity checked
             </span>
@@ -178,22 +215,24 @@ export function App() {
         </header>
 
         <main className="work">
-          {persona === 'issuer' && <IssuerPanel state={state} refresh={refresh} />}
+          {/* Only shown on chain: in the simulator there is nothing for a
+              wallet to pay for, and a connect button that does nothing is
+              worse than no button. */}
+          {state.engine?.mode === 'onchain' && (
+            <WalletConnect state={state} session={wallet} onSession={setWallet} />
+          )}
+
+          {persona === 'issuer' && (
+            <IssuerPanel state={state} refresh={refresh} wallet={wallet} />
+          )}
           {persona === 'holder' && (
             <HolderPanel state={state} selected={selected} onSelect={setSelected} refresh={refresh} />
           )}
           {persona === 'verifier' && (
-            <VerifierPanel state={state} selected={selected} refresh={refresh} />
+            <VerifierPanel state={state} selected={selected} refresh={refresh} wallet={wallet} />
           )}
 
-          <p className="footnote">
-            Every action on this page executes the compiled Compact circuits
-            through <code>@midnight-ntwrk/compact-runtime</code>. Rejections are
-            produced by in-circuit assertions, not by application code. The
-            contract runs against an in-memory ledger rather than a Midnight
-            node, so constraints are enforced but no zero-knowledge proof is
-            generated — reported times are circuit execution, not proving.
-          </p>
+          <ChainStatus state={state} />
         </main>
       </div>
 

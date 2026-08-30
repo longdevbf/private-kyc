@@ -16,6 +16,7 @@ export function HolderPanel({
   const [busy, setBusy] = useState(false);
   const [last, setLast] = useState<Result | null>(null);
   const holder = state.holders.find((h) => h.name === selected);
+  const onchain = state.engine?.mode === 'onchain';
   const revoked = !!holder && state.credentials.some(
     (c) => c.commitment === holder.commitment && c.revoked,
   );
@@ -53,8 +54,8 @@ export function HolderPanel({
             <h2>Wallet</h2>
             <p>
               A credential is four things: the attribute values, a blinding
-              factor, an issuer signature, and a Merkle path. All four live
-              here. None of them is on chain.
+              factor, {onchain ? 'the issuing authority’s identity' : 'an issuer signature'}, and a Merkle path. All four
+              live here. None of them is on chain.
             </p>
           </div>
         </div>
@@ -115,10 +116,11 @@ export function HolderPanel({
               <div className="face-note pv">
                 <span className="face-k">front · what {holder.name} keeps</span>
                 <p>
-                  Four attribute values, a blinding factor, an issuer
-                  signature and a Merkle path. In a deployment none of this
-                  leaves the device; here it lives on the demo server, which
-                  is a limitation of the demo and not of the design.
+                  Four attribute values, a blinding factor,{' '}
+                  {onchain ? 'the issuer id' : 'an issuer signature'} and a Merkle path. In a real
+                  deployment none of this leaves the device; here it lives on
+                  the demo server, which is a limitation of the demo and not
+                  of the design.
                 </p>
               </div>
 

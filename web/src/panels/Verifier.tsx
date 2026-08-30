@@ -1,11 +1,12 @@
 import { useState } from 'react';
-import { api, type DemoState, type Presentation, type Result } from '../api.js';
+import { api, runViaWallet, type DemoState, type Presentation, type Result } from '../api.js';
+import type { WalletSession } from '../components/WalletConnect.js';
 import { Outcome } from './Issuer.js';
 import { IconInbox } from '../components/Icons.js';
 import { Dial } from '../components/Dial.js';
 import { CircuitTrace } from '../components/CircuitTrace.js';
 
-const YEAR_MS = 31_536_000_000n;
+const YEAR_SECONDS = 31_536_000n;
 
 const VERIFIERS = [
   { id: 'alpha-exchange', name: 'Alpha Exchange', initials: 'AX' },
@@ -18,7 +19,7 @@ function buildRequest(kind: Kind, value: string) {
   if (kind === 'age') {
     return {
       predicateId: 0,
-      threshold: (BigInt(value || '0') * YEAR_MS).toString(),
+      threshold: (BigInt(value || '0') * YEAR_SECONDS).toString(),
       allowedCountries: [] as number[],
     };
   }
@@ -62,11 +63,12 @@ function ByteGrid({ hex, other }: { hex: string; other?: string }) {
 }
 
 export function VerifierPanel({
-  state, selected, refresh,
+  state, selected, refresh, wallet,
 }: {
   state: DemoState;
   selected?: string;
   refresh: () => Promise<void>;
+  wallet?: WalletSession | null;
 }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [last, setLast] = useState<Record<string, Result>>({});
@@ -87,7 +89,13 @@ export function VerifierPanel({
     setBusy(verifierId);
     setTraceFor(verifierId);
     try {
-      const r = await api.present({ holderName: holder.name, verifierId, ...buildRequest(kind, value) });
+      const body = { holderName: holder.name, verifierId, ...buildRequest(kind, value) };
+      // A connected wallet pays and relays. Without one the demo's own
+      // funded wallet does, which is still a real transaction -- just not
+      // the visitor's.
+      const r = wallet
+        ? await runViaWallet(wallet.api, { action: 'present', ...body })
+        : await api.present(body);
       setLast({ ...last, [verifierId]: r });
       await refresh();
     } finally {
@@ -100,6 +108,7 @@ export function VerifierPanel({
 
   const a = accepted('alpha-exchange');
   const b = accepted('beta-lending');
+  const onchain = state.engine?.mode === 'onchain';
 
   const matching = a && b
     ? (a.nullifier.match(/../g) ?? []).filter((x, i) => x === (b.nullifier.match(/../g) ?? [])[i]).length
@@ -149,13 +158,17 @@ export function VerifierPanel({
                 disabled={!holder || busy !== null}
                 onClick={() => present(v.id)}
               >
-                {busy === v.id ? 'Proving…' : `Present to ${v.name}`}
+                {busy === v.id
+                  ? onchain
+                    ? 'Proving on chain…'
+                    : 'Proving…'
+                  : `Present to ${v.name}`}
               </button>
             ))}
           </div>
 
           {VERIFIERS.map((v) =>
-            last[v.id] ? <Outcome key={v.id} r={last[v.id]} okText={`${v.name} accepted the proof.`} /> : null,
+            last[v.id] ? <Outcome key={v.id} r={last[v.id]} onchain={onchain} okText={`${v.name} accepted the proof.`} /> : null,
           )}
 
           {traceFor && (
@@ -164,6 +177,8 @@ export function VerifierPanel({
               ok={busy === traceFor ? null : last[traceFor]?.ok ?? null}
               ms={last[traceFor]?.ms}
               reason={last[traceFor]?.reason}
+              onchain={onchain}
+              proveMs={last[traceFor]?.presentation?.proveMs ?? last[traceFor]?.receipt?.proveMs}
             />
           )}
         </div>
@@ -267,7 +282,13 @@ export function VerifierPanel({
             <div className="tablewrap">
               <table className="t">
                 <thead>
-                  <tr><th>Verifier</th><th>Asked</th><th>Outcome</th><th>Nullifier</th><th>Circuit</th></tr>
+                  <tr>
+                    <th>Verifier</th><th>Asked</th><th>Outcome</th><th>Nullifier</th>
+                    {/* The header names what the number IS. On chain it is
+                        proving time; in the simulator it is circuit
+                        execution, and the two must never share a label. */}
+                    <th>{onchain ? 'Proof' : 'Circuit'}</th>
+                  </tr>
                 </thead>
                 <tbody>
                   {[...state.presentations].reverse().map((p, i) => (
@@ -279,11 +300,22 @@ export function VerifierPanel({
                           ? <span className="chip ok"><i className="dot" />accepted</span>
                           : <span className="chip bad"><i className="dot" />rejected</span>}
                         {!p.accepted && <div className="reason">{p.reason}</div>}
+                        {p.txHash && (
+                          <div className="reason mono" title={p.txHash}>
+                            tx {p.txHash.slice(0, 12)}…
+                            {p.blockHeight ? ` · block ${p.blockHeight}` : ''}
+                          </div>
+                        )}
                       </td>
                       <td className="hash" title={p.nullifier}>
                         {p.nullifier === '-' ? '—' : `${p.nullifier.slice(0, 14)}…`}
                       </td>
-                      <td className="num">{p.ms} ms</td>
+                      <td className="num">
+                        {p.proveMs !== undefined ? `${p.proveMs} ms` : `${p.ms} ms`}
+                        {p.proveMs !== undefined && (
+                          <div className="sub">{(p.ms / 1000).toFixed(1)}s total</div>
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>

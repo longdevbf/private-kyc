@@ -8,7 +8,12 @@ import { IconLock, IconGlobe } from './Icons.js';
 const short = (h: string, n = 8) =>
   h.length > n * 2 ? `${h.slice(0, n)}…${h.slice(-n)}` : h;
 
-const day = (ms: string) => new Date(Number(ms)).toISOString().slice(0, 10);
+// Timestamps cross the wire in SECONDS, because that is the unit the
+// contract's blockTime comparisons use. JavaScript's Date wants
+// milliseconds, so the conversion happens here, at the one place that
+// renders them.
+const day = (seconds: string) =>
+  new Date(Number(seconds) * 1000).toISOString().slice(0, 10);
 
 function Row({ k, v }: { k: string; v: React.ReactNode }) {
   return (

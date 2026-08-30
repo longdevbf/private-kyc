@@ -16,10 +16,10 @@
 
 import express from 'express';
 import cors from 'cors';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import {
-  Sim, makeHolder, bytes32, label32,
+  Sim, makeHolder, bytes32, label32, nowSeconds,
   type CredentialAttrs, type Holder, type PredicateRequest,
 } from '../core/engine.js';
 import { MockCredentialAuthority, MOCK_WARNING, hex } from '../issuer/mockIssuer.js';
@@ -27,6 +27,71 @@ import type { MerkleTreeDigest, MerkleTreePath } from '@midnight-ntwrk/compact-r
 
 const PORT = Number(process.env.PORT ?? 4000);
 const ADMIN_SECRET = bytes32(1);
+
+// ---------------------------------------------------------------------
+// Two engines, one shape
+// ---------------------------------------------------------------------
+// The demo can be driven two ways, and the difference between them is the
+// most honest thing this UI has to say:
+//
+//   simulator   the circuits run in this process against an in-memory
+//               ledger. Every assert is enforced. NO PROOF IS GENERATED,
+//               so reported milliseconds are circuit execution.
+//
+//   onchain     the same lifecycle, compiled for the language version the
+//               live networks accept, running as a deployed contract. Each
+//               action generates a real zero-knowledge proof on a local
+//               proof server and lands in a real block. Milliseconds are
+//               proving time and block inclusion, and are labelled as
+//               such.
+//
+// The on-chain half lives in a separate process because it needs
+// compact-runtime 0.16.0 while this one needs 0.19.0, and those cannot
+// share a dependency tree. This file talks to it over HTTP and maps its
+// answer into the same shape the UI already consumes, so no component has
+// to know which engine produced the state it is rendering.
+const CHAIN_URL = process.env.CHAIN_SERVICE_URL ?? 'http://localhost:4100';
+
+type Mode = 'simulator' | 'onchain';
+
+// Held in a cell rather than a bare `let`: a module-level `let` initialised
+// to a literal is narrowed to that literal, and every `=== 'onchain'` in
+// this file would then be flagged as an impossible comparison.
+const engine: { mode: Mode } = { mode: 'simulator' };
+
+async function chain(path: string, body?: unknown): Promise<any> {
+  const r = await fetch(`${CHAIN_URL}${path}`, {
+    method: body === undefined ? 'GET' : 'POST',
+    headers: body === undefined ? undefined : { 'content-type': 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body),
+    signal: AbortSignal.timeout(15 * 60_000),
+  });
+  if (!r.ok) throw new Error(`chain service ${r.status} on ${path}`);
+  return r.json();
+}
+
+/** Whether the on-chain service is answering, and on which network. */
+async function chainProbe(): Promise<{ available: boolean; network?: string; contractAddress?: string; walletAddress?: string; reason?: string }> {
+  try {
+    const s = await Promise.race([
+      chain('/state'),
+      // 20s, not 4s. The service answers /state by reading contract state
+      // through the indexer, which is a network round trip on a shared
+      // testnet -- 4 seconds was tight enough that a healthy service was
+      // reported as absent, and the UI then disabled the on-chain option
+      // for a reason that was not true.
+      new Promise((_r, rej) => setTimeout(() => rej(new Error('timeout')), 20_000)),
+    ] as const) as any;
+    return {
+      available: true,
+      network: s.network,
+      contractAddress: s.contractAddress,
+      walletAddress: s.walletAddress,
+    };
+  } catch (e) {
+    return { available: false, reason: e instanceof Error ? e.message : String(e) };
+  }
+}
 
 // ---------------------------------------------------------------------
 // Demo state
@@ -59,7 +124,8 @@ const wallets = new Map<string, Wallet>();
 const presentations: Presentation[] = [];
 
 async function reset() {
-  sim = await Sim.deploy(ADMIN_SECRET, Date.now());
+  // Seconds since the epoch: the unit every blockTime* comparison uses.
+  sim = await Sim.deploy(ADMIN_SECRET, Number(nowSeconds()));
   authority = new MockCredentialAuthority(1n, 'Mock National ID Authority');
   registered = false;
   wallets.clear();
@@ -100,7 +166,7 @@ function refreshPath(w: Wallet): boolean {
 }
 
 function describePredicate(req: PredicateRequest): string {
-  const years = (n: bigint) => Number(n / 31_536_000_000n);
+  const years = (n: bigint) => Number(n / 31_536_000n);
   switch (req.predicateId) {
     case 0: return `age >= ${years(req.threshold)}`;
     case 1: return `kycTier >= ${req.threshold}`;
@@ -110,6 +176,44 @@ function describePredicate(req: PredicateRequest): string {
 }
 
 /** Public ledger state, as the chain sees it. Nothing private is included. */
+// ---------------------------------------------------------------------
+// On-chain deployment record
+// ---------------------------------------------------------------------
+// The deployable port in onchain/ writes one JSON file per network it has
+// actually been deployed to. Reading them here lets the UI state, with a
+// real contract address and transaction hash, what has and has not been
+// put on a network -- rather than the UI having to hedge in prose.
+//
+// Read on every request, not cached, so a deployment that happens while
+// the demo is running shows up without a restart.
+
+type DeploymentRecord = {
+  network: string;
+  contractAddress: string;
+  txId?: string;
+  txHash?: string;
+  blockHeight?: string;
+  deployedAt: string;
+  compiler: string;
+  languageVersion: string;
+  proofServer: string;
+  indexer?: string;
+};
+
+const DEPLOYMENTS_DIR = join(import.meta.dirname, '..', 'onchain', 'deployments');
+
+function deployments(): DeploymentRecord[] {
+  if (!existsSync(DEPLOYMENTS_DIR)) return [];
+  try {
+    return readdirSync(DEPLOYMENTS_DIR)
+      .filter((f) => f.endsWith('.json'))
+      .map((f) => JSON.parse(readFileSync(join(DEPLOYMENTS_DIR, f), 'utf8')) as DeploymentRecord)
+      .sort((a, b) => a.network.localeCompare(b.network));
+  } catch {
+    return [];
+  }
+}
+
 function publicState() {
   const l = sim.ledger();
   const issuers: string[] = [];
@@ -143,11 +247,79 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-app.get('/api/state', (_req, res) => {
+/**
+ * Map the on-chain service's answer into the shape the UI already reads.
+ *
+ * The mapping is deliberately total rather than a spread: every field the
+ * UI depends on is named here, so a field the chain service does not have
+ * fails loudly at the seam instead of arriving as `undefined` somewhere in
+ * a component.
+ */
+function fromChain(s: any) {
+  return {
+    mockWarning: MOCK_WARNING,
+    issuerRegistered: Boolean(s.issuerRegistered),
+    issuerName: 'Mock National ID Authority',
+    engine: {
+      mode: 'onchain' as const,
+      proofsGenerated: true,
+      timingMeans: 'proof generation and block inclusion',
+      runtime: '@midnight-ntwrk/compact-runtime 0.16.0 → on-chain runtime v3',
+      network: s.network,
+      contractAddress: s.contractAddress,
+      feePayer: s.walletAddress,
+      node: s.node,
+      indexer: s.indexer,
+    },
+    deployments: deployments(),
+    public: {
+      issuers: s.public.issuers,
+      merkleRoot: s.public.merkleRoot,
+      nextLeafIndex: s.public.nextLeafIndex,
+      revocationEpoch: s.public.revocationEpoch,
+      spentNullifiers: s.public.spentNullifiers,
+      admin: s.public.admin,
+      // The chain's own clock is what the freshness window is checked
+      // against; the browser's is only used for display, so this is the
+      // wall clock at read time and is labelled as such in the UI.
+      // Seconds, matching the simulator's clock and the chain's own unit.
+    chainTime: Number(nowSeconds()),
+    },
+    credentials: s.credentials,
+    holders: s.holders,
+    presentations: s.presentations,
+    receipts: s.receipts,
+  };
+}
+
+app.get('/api/state', async (_req, res) => {
+  if (engine.mode === 'onchain') {
+    try {
+      return res.json(fromChain(await chain('/state')));
+    } catch (e) {
+      // Falling back silently would be the wrong thing: the UI would show
+      // simulator state while claiming to be on chain. Say what happened.
+      return res.status(503).json({
+        error: 'onchain',
+        reason: `the on-chain service at ${CHAIN_URL} is not answering: ${reasonOf(e)}`,
+      });
+    }
+  }
   res.json({
     mockWarning: MOCK_WARNING,
     issuerRegistered: registered,
     issuerName: authority.name,
+    // What this demo instance is, stated as data rather than prose so the
+    // UI cannot drift from the truth. `simulator` means the circuits run
+    // here against an in-memory ledger with no proof generated; the
+    // deployments list is the separate, real on-chain record.
+    engine: {
+      mode: 'simulator' as const,
+      proofsGenerated: false,
+      timingMeans: 'circuit execution',
+      runtime: '@midnight-ntwrk/compact-runtime',
+    },
+    deployments: deployments(),
     public: publicState(),
     credentials: authority.records().map((r) => ({
       commitment: hex(r.commitment),
@@ -191,13 +363,94 @@ app.get('/api/state', (_req, res) => {
 });
 
 app.post('/api/reset', async (_req, res) => {
+  // Reset is a simulator affordance and stays one. There is no reset for a
+  // deployed contract: what is on the chain is on the chain. Saying so is
+  // more useful than quietly resetting the wrong thing.
+  if (engine.mode === 'onchain') {
+    return res.status(400).json({
+      ok: false,
+      reason:
+        'the deployed contract cannot be reset — its state is on the network. ' +
+        'Switch to the simulator to start over.',
+    });
+  }
   await reset();
   res.json({ ok: true });
+});
+
+/**
+ * Forward an action to the on-chain service and pass its answer through
+ * unchanged.
+ *
+ * A refused call is a RESULT, not a transport failure -- the contract said
+ * no, which is the outcome several of the invariants exist to produce -- so
+ * the service answers 200 with `ok:false` and the reason, and that is what
+ * reaches the UI. A non-200 here means the service itself is unreachable
+ * or broken, which is a different thing and is reported as 503.
+ */
+async function proxy(res: express.Response, path: string, body: unknown) {
+  const started = performance.now();
+  try {
+    const out = await chain(path, body);
+    return res.json({ ...out, ms: out.ms ?? Math.round(performance.now() - started) });
+  } catch (e) {
+    return res.status(503).json({ ok: false, reason: reasonOf(e) });
+  }
+}
+
+// --- Paying from the visitor's own wallet ------------------------------
+// A prepared transaction is proven but unbalanced. The browser hands it to
+// a connected Midnight wallet, which adds the fee from its own DUST and
+// relays it. These two routes are the only ones that path needs.
+
+app.post('/api/chain/prepare', async (req, res) => {
+  if (engine.mode !== 'onchain') {
+    return res.status(400).json({
+      ok: false,
+      reason: 'preparing a transaction for a wallet requires the on-chain engine',
+    });
+  }
+  return proxy(res, '/prepare', req.body ?? {});
+});
+
+app.post('/api/chain/confirm', async (req, res) => {
+  if (engine.mode !== 'onchain') {
+    return res.status(400).json({ ok: false, reason: 'not on chain' });
+  }
+  return proxy(res, '/confirm', req.body ?? {});
+});
+
+// --- Which engine is driving -----------------------------------------
+
+app.get('/api/engine', async (_req, res) => {
+  res.json({ mode: engine.mode, chain: await chainProbe(), chainUrl: CHAIN_URL });
+});
+
+app.post('/api/engine', async (req, res) => {
+  const wanted = req.body?.mode as Mode | undefined;
+  if (wanted !== 'simulator' && wanted !== 'onchain') {
+    return res.status(400).json({ ok: false, reason: 'mode must be simulator or onchain' });
+  }
+  if (wanted === 'onchain') {
+    const probe = await chainProbe();
+    if (!probe.available) {
+      return res.status(503).json({
+        ok: false,
+        reason:
+          `no on-chain service at ${CHAIN_URL}. Start it with ` +
+          `\`cd onchain && npx tsx src/service.ts preview\`, which needs a deployed ` +
+          `contract and a funded wallet. (${probe.reason})`,
+      });
+    }
+  }
+  engine.mode = wanted;
+  res.json({ ok: true, mode: engine.mode });
 });
 
 // --- Issuer -----------------------------------------------------------
 
 app.post('/api/issuer/register', async (_req, res) => {
+  if (engine.mode === 'onchain') return proxy(res, '/register-issuer', {});
   try {
     const t0 = performance.now();
     await sim.registerIssuer(ADMIN_SECRET, authority.issuer);
@@ -210,13 +463,16 @@ app.post('/api/issuer/register', async (_req, res) => {
 
 app.post('/api/issuer/issue', async (req, res) => {
   const { holderName, label, ageYears, countryCode, kycTier, validDays } = req.body ?? {};
+  if (engine.mode === 'onchain') {
+    return proxy(res, '/issue', { holderName, label, ageYears, countryCode, kycTier, validDays });
+  }
   try {
     const now = BigInt(sim.time);
     const attrs: CredentialAttrs = {
-      birthTimestamp: now - BigInt(Math.round(Number(ageYears) * 31_536_000_000)),
+      birthTimestamp: now - BigInt(Math.round(Number(ageYears) * 31_536_000)),
       countryCode: BigInt(countryCode),
       kycTier: BigInt(kycTier),
-      expiresAt: now + BigInt(Math.round(Number(validDays) * 86_400_000)),
+      expiresAt: now + BigInt(Math.round(Number(validDays) * 86_400)),
     };
 
     const seed = 100 + wallets.size;
@@ -250,7 +506,10 @@ app.post('/api/issuer/issue', async (req, res) => {
 });
 
 app.post('/api/issuer/revoke', async (req, res) => {
-  const { commitment } = req.body ?? {};
+  const { commitment, holderName } = req.body ?? {};
+  // Both, because the chain service accepts either and forwarding only one
+  // turns a mistyped request into `no credential issued to "undefined"`.
+  if (engine.mode === 'onchain') return proxy(res, '/revoke', { commitment, holderName });
   try {
     const rec = authority.records().find((r) => hex(r.commitment) === commitment);
     if (!rec) throw new Error('no such credential');
@@ -269,6 +528,10 @@ app.post('/api/issuer/revoke', async (req, res) => {
 // --- Holder -----------------------------------------------------------
 
 app.post('/api/holder/refresh', (req, res) => {
+  // On chain there is no cached path to refresh: the path is rebuilt from
+  // indexer state on every read, so it is never stale. Reporting success
+  // is accurate, and the UI's staleness indicator simply never lights up.
+  if (engine.mode === 'onchain') return res.json({ ok: true });
   const w = wallets.get(req.body?.holderName);
   if (!w) return res.status(404).json({ ok: false, reason: 'unknown holder' });
   const ok = refreshPath(w);
@@ -282,6 +545,15 @@ app.post('/api/holder/refresh', (req, res) => {
 
 app.post('/api/verifier/present', async (req, res) => {
   const { holderName, verifierId, predicateId, threshold, allowedCountries } = req.body ?? {};
+  if (engine.mode === 'onchain') {
+    return proxy(res, '/present', {
+      holderName,
+      verifierId,
+      predicateId: Number(predicateId),
+      threshold: String(threshold ?? 0),
+      allowedCountries: (allowedCountries ?? []).map((c: string | number) => Number(c)),
+    });
+  }
   const w = wallets.get(holderName);
   if (!w) return res.status(404).json({ ok: false, reason: 'unknown holder' });
 

@@ -3,16 +3,23 @@ import { useEffect, useState } from 'react';
 /**
  * What `present()` does, in the order it does it.
  *
- * This is a visualisation of work that has already finished — the circuit
- * runs in a few milliseconds — not a progress bar for it. It is here
- * because the order is the design: a reader who sees the sequence
- * understands what a rejection actually means.
+ * This is a visualisation of work that has already finished, not a
+ * progress bar for it. It is here because the order is the design: a
+ * reader who sees the sequence understands what a rejection actually
+ * means. In the simulator the work takes milliseconds; on chain it takes
+ * as long as proving and a block take, and the footer says which.
  *
  * The `match` strings are the assertion messages from
  * contracts/src/credential.compact, so the stage a rejection lands on is
  * read from the contract's own text rather than guessed. The commitment
  * step carries no assertion — it is a recomputation, and nothing there can
  * fail on its own — so it has no match strings.
+ *
+ * The deployed port in onchain/ asserts almost the same words. Where it
+ * does not, its message is listed alongside rather than instead: the
+ * authorisation step is a signature check in one contract and a
+ * proof-of-knowledge check in the other, and a stage that matched only one
+ * of them would silently mis-attribute the other's rejections.
  */
 const STAGES: { name: string; why: string; match: string[] }[] = [
   {
@@ -27,8 +34,12 @@ const STAGES: { name: string; why: string; match: string[] }[] = [
   },
   {
     name: 'issuer attestation',
-    why: 'jubjub schnorr, against a key read from public state',
-    match: ['unregistered issuer', 'invalid issuer signature'],
+    why: 'checked against public state, never against the prover',
+    match: [
+      'unregistered issuer',
+      'invalid issuer signature',
+      "does not hold this issuer's secret",
+    ],
   },
   {
     name: 'leaf binding',
@@ -38,7 +49,7 @@ const STAGES: { name: string; why: string; match: string[] }[] = [
   {
     name: 'root membership',
     why: 'the folded root is one the tree still accepts',
-    match: ['not in the active set'],
+    match: ['not in the active set', 'revoked or path stale'],
   },
   {
     name: 'expiry',
@@ -69,11 +80,17 @@ export function CircuitTrace({
   ok,
   ms,
   reason,
+  onchain = false,
+  proveMs,
 }: {
   running: boolean;
   ok: boolean | null;
   ms?: number;
   reason?: string;
+  /** Whether a deployed contract produced this, which changes what
+      the timing means -- and therefore what it may be called. */
+  onchain?: boolean;
+  proveMs?: number;
 }) {
   const [step, setStep] = useState(0);
 
@@ -105,7 +122,9 @@ export function CircuitTrace({
         <span className="trace-title">what present() checks, in order</span>
         {settled && ms !== undefined && (
           <span className="trace-ms">
-            {ms} ms · constraints enforced, no ZK proof generated
+            {onchain
+              ? `${proveMs !== undefined ? `${proveMs} ms proving` : 'proof generated'} · ${(ms / 1000).toFixed(1)}s to a block`
+              : `${ms} ms · constraints enforced, no ZK proof generated`}
           </span>
         )}
       </div>
