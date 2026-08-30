@@ -76,8 +76,31 @@ export type PrivateState = {
 // Constants and small helpers
 // ---------------------------------------------------------------------
 
-export const MS_PER_YEAR = 31_536_000_000n; // 365 days
-export const FRESHNESS_WINDOW_MS = 300_000n; // must match freshnessWindow()
+/**
+ * Time is in SECONDS since the epoch, everywhere.
+ *
+ * Not a style choice: Compact's block time is
+ * `BlockContext.secondsSinceEpoch`, which compact-runtime fills in as
+ * `BigInt(time ?? Math.floor(Date.now() / 1_000))`
+ * (compact-runtime/dist/circuit-context.js:47). Every `blockTime*`
+ * comparison in the contract is therefore against seconds.
+ *
+ * This engine previously used milliseconds. Nothing caught it, because a
+ * simulator supplies its own block time and milliseconds were internally
+ * consistent. It failed the moment it met a real chain -- `present()` with
+ * a millisecond `asOf` is rejected as "asOf is in the future" -- and was
+ * confirmed by presenting the same credential in both units against the
+ * deployed contract. RESEARCH.md §H.11.
+ */
+export const SECONDS_PER_YEAR = 31_536_000n; // 365 days
+export const SECONDS_PER_DAY = 86_400n;
+export const FRESHNESS_WINDOW_SEC = 300n; // must match freshnessWindow()
+
+/** The current time in the unit the contract compares against. */
+export function nowSeconds(): bigint {
+  return BigInt(Math.floor(Date.now() / 1000));
+}
+
 export const TREE_DEPTH = 10;
 
 /** Deterministic 32-byte value, so failures are reproducible. */
@@ -211,7 +234,7 @@ const witnesses: Witnesses<PrivateState> = {
 export class Sim {
   private contract: Contract<PrivateState>;
   private state: unknown;
-  /** Simulated chain time, in milliseconds. */
+  /** Simulated chain time, in SECONDS since the epoch. */
   public time: number;
 
   private constructor(contract: Contract<PrivateState>, state: unknown, time: number) {
@@ -221,7 +244,7 @@ export class Sim {
   }
 
   /** Deploy the contract; `adminSecret` becomes the sealed admin identity. */
-  static async deploy(adminSecret: Uint8Array, startTime = 1_700_000_000_000): Promise<Sim> {
+  static async deploy(adminSecret: Uint8Array, startTime = 1_700_000_000): Promise<Sim> {
     const contract = new Contract<PrivateState>(witnesses);
     const ps = { ...blankPrivateState(), localSecret: adminSecret };
     const res = await contract.initialState(createConstructorContext(ps, COIN_PUBLIC_KEY));
@@ -243,9 +266,9 @@ export class Sim {
     return blankPrivateState();
   }
 
-  /** Advance simulated chain time. */
-  advance(ms: number): void {
-    this.time += ms;
+  /** Advance simulated chain time, in SECONDS. */
+  advance(seconds: number): void {
+    this.time += seconds;
   }
 
   /**

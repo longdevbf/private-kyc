@@ -28,14 +28,14 @@ export module Predicates {
 
   // Attribute values. NEVER written to ledger state.
   export struct CredentialAttrs {
-    birthTimestamp: Uint<64>;   // unix ms
+    birthTimestamp: Uint<64>;   // unix seconds
     countryCode:    Uint<16>;   // ISO 3166-1 numeric
     kycTier:        Uint<8>;
-    expiresAt:      Uint<64>;   // unix ms
+    expiresAt:      Uint<64>;   // unix seconds
   }
 
   export enum PredicateId {
-    AGE_AT_LEAST,      // threshold = minimum age, in milliseconds
+    AGE_AT_LEAST,      // threshold = minimum age, in seconds
     TIER_AT_LEAST,     // threshold = minimum kycTier
     COUNTRY_IN_SET     // allowedCountries = permitted ISO numeric codes
   }

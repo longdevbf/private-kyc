@@ -4,7 +4,7 @@ import { describe, it, expect } from 'vitest';
 import {
   Sim, makeIssuer, makeHolder, standardAttrs,
   ageAtLeast, tierAtLeast, countryIn,
-  bytes32, ADMIN_SECRET, VERIFIER_A, MS_PER_YEAR, FRESHNESS_WINDOW_MS,
+  bytes32, ADMIN_SECRET, VERIFIER_A, SECONDS_PER_YEAR, FRESHNESS_WINDOW_SEC,
   type PrivateState,
 } from './setup.js';
 
@@ -93,17 +93,17 @@ describe('access control', () => {
 });
 
 describe('predicate boundaries', () => {
-  // A holder who is exactly 18 years old to the millisecond.
+  // A holder who is exactly 18 years old, to the second.
   async function exactlyAged(years: bigint) {
     const sim = await Sim.deploy(ADMIN_SECRET);
     const issuer = makeIssuer(1n);
     await sim.registerIssuer(ADMIN_SECRET, issuer);
     const now = BigInt(sim.time);
     const holder = makeHolder(42, {
-      birthTimestamp: now - years * MS_PER_YEAR,
+      birthTimestamp: now - years * SECONDS_PER_YEAR,
       countryCode: 704n,
       kycTier: 3n,
-      expiresAt: now + 10n * MS_PER_YEAR,
+      expiresAt: now + 10n * SECONDS_PER_YEAR,
     });
     await sim.issue(issuer, holder);
     return { sim, issuer, holder };
@@ -115,16 +115,16 @@ describe('predicate boundaries', () => {
     expect(sim.ledger().spentNullifiers.size()).toBe(1n);
   });
 
-  it('rejects age one millisecond below the threshold', async () => {
+  it('rejects age one second below the threshold', async () => {
     const sim = await Sim.deploy(ADMIN_SECRET);
     const issuer = makeIssuer(1n);
     await sim.registerIssuer(ADMIN_SECRET, issuer);
     const now = BigInt(sim.time);
     const holder = makeHolder(42, {
-      birthTimestamp: now - 18n * MS_PER_YEAR + 1n, // one ms too young
+      birthTimestamp: now - 18n * SECONDS_PER_YEAR + 1n, // one second too young
       countryCode: 704n,
       kycTier: 3n,
-      expiresAt: now + 10n * MS_PER_YEAR,
+      expiresAt: now + 10n * SECONDS_PER_YEAR,
     });
     await sim.issue(issuer, holder);
     await expect(
@@ -144,10 +144,10 @@ describe('predicate boundaries', () => {
     await sim.registerIssuer(ADMIN_SECRET, issuer);
     const now = BigInt(sim.time);
     const holder = makeHolder(42, {
-      birthTimestamp: now + 10n * MS_PER_YEAR, // not born yet
+      birthTimestamp: now + 10n * SECONDS_PER_YEAR, // not born yet
       countryCode: 704n,
       kycTier: 3n,
-      expiresAt: now + 20n * MS_PER_YEAR,
+      expiresAt: now + 20n * SECONDS_PER_YEAR,
     });
     await sim.issue(issuer, holder);
     await expect(
@@ -161,10 +161,10 @@ describe('predicate boundaries', () => {
     await sim.registerIssuer(ADMIN_SECRET, issuer);
     const now = BigInt(sim.time);
     const holder = makeHolder(42, {
-      birthTimestamp: now - 30n * MS_PER_YEAR,
+      birthTimestamp: now - 30n * SECONDS_PER_YEAR,
       countryCode: 704n,
       kycTier: 3n,
-      expiresAt: now + 10n * MS_PER_YEAR,
+      expiresAt: now + 10n * SECONDS_PER_YEAR,
     });
     await sim.issue(issuer, holder);
 
@@ -195,10 +195,10 @@ describe('predicate boundaries', () => {
     await sim.registerIssuer(ADMIN_SECRET, issuer);
     const now = BigInt(sim.time);
     const holder = makeHolder(42, {
-      birthTimestamp: now - 30n * MS_PER_YEAR,
+      birthTimestamp: now - 30n * SECONDS_PER_YEAR,
       countryCode: 840n,
       kycTier: 3n,
-      expiresAt: now + 10n * MS_PER_YEAR,
+      expiresAt: now + 10n * SECONDS_PER_YEAR,
     });
     await sim.issue(issuer, holder);
 
@@ -249,7 +249,7 @@ describe('asOf freshness', () => {
 
     await expect(
       sim.present(holder, issuer, VERIFIER_A, ageAtLeast(18n), {
-        asOf: BigInt(sim.time) - FRESHNESS_WINDOW_MS - 1n,
+        asOf: BigInt(sim.time) - FRESHNESS_WINDOW_SEC - 1n,
       }),
     ).rejects.toThrow(/asOf is stale/);
   });
@@ -262,7 +262,7 @@ describe('asOf freshness', () => {
     await sim.issue(issuer, holder);
 
     await sim.present(holder, issuer, VERIFIER_A, ageAtLeast(18n), {
-      asOf: BigInt(sim.time) - FRESHNESS_WINDOW_MS + 1n,
+      asOf: BigInt(sim.time) - FRESHNESS_WINDOW_SEC + 1n,
     });
     expect(sim.ledger().spentNullifiers.size()).toBe(1n);
   });
@@ -274,14 +274,14 @@ describe('asOf freshness', () => {
     await sim.registerIssuer(ADMIN_SECRET, issuer);
     const now = BigInt(sim.time);
     const holder = makeHolder(42, {
-      birthTimestamp: now - 30n * MS_PER_YEAR,
+      birthTimestamp: now - 30n * SECONDS_PER_YEAR,
       countryCode: 704n,
       kycTier: 3n,
       expiresAt: now + 1000n,
     });
     await sim.issue(issuer, holder);
 
-    sim.advance(24 * 3_600_000); // a day later, long expired
+    sim.advance(24 * 3_600); // a day later, long expired
 
     await expect(
       sim.present(holder, issuer, VERIFIER_A, ageAtLeast(18n), { asOf: now }),

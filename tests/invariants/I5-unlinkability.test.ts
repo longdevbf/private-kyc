@@ -65,7 +65,7 @@ describe('I5: per-verifier unlinkability', () => {
     // Two worlds that must look the same to colluding verifiers:
     //   world 1 -- ONE holder presents to A and to B
     //   world 2 -- TWO holders, one to A and one to B
-    const now = 1_700_000_000_000;
+    const now = 1_700_000_000;
 
     const one = await Sim.deploy(ADMIN_SECRET, now);
     const issuer1 = makeIssuer(1n);

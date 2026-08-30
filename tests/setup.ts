@@ -4,7 +4,7 @@
 
 export * from '../core/engine.js';
 
-import { bytes32, label32, noCountries, countries, MS_PER_YEAR,
+import { bytes32, label32, noCountries, countries, SECONDS_PER_YEAR,
          PredicateId, type CredentialAttrs, type PredicateRequest } from '../core/engine.js';
 
 // ---------------------------------------------------------------------
@@ -18,7 +18,7 @@ export const VERIFIER_B = label32('verifier:beta-lending');
 /** An adult, tier 3, Vietnam (704), expiring well in the future. */
 export function standardAttrs(now: bigint): CredentialAttrs {
   return {
-    birthTimestamp: now - 30n * MS_PER_YEAR,
+    birthTimestamp: now - 30n * SECONDS_PER_YEAR,
     countryCode: 704n,
     kycTier: 3n,
     expiresAt: now + 365n * 24n * 3600n * 1000n,
@@ -28,7 +28,7 @@ export function standardAttrs(now: bigint): CredentialAttrs {
 export function ageAtLeast(years: bigint): PredicateRequest {
   return {
     predicateId: PredicateId.AGE_AT_LEAST,
-    threshold: years * MS_PER_YEAR,
+    threshold: years * SECONDS_PER_YEAR,
     allowedCountries: noCountries(),
   };
 }

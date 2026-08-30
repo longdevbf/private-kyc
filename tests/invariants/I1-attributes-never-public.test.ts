@@ -12,7 +12,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   Sim, makeIssuer, makeHolder, ageAtLeast,
-  ADMIN_SECRET, VERIFIER_A, MS_PER_YEAR,
+  ADMIN_SECRET, VERIFIER_A, SECONDS_PER_YEAR,
 } from '../setup.js';
 
 const hex = (b: Uint8Array) => [...b].map((x) => x.toString(16).padStart(2, '0')).join('');
@@ -28,7 +28,7 @@ describe('I1: private attributes never reach public state', () => {
     // Deliberately distinctive multi-byte values, so a substring hit is
     // meaningful rather than a coincidence.
     const attrs = {
-      birthTimestamp: now - 30n * MS_PER_YEAR - 123_456_789n,
+      birthTimestamp: now - 30n * SECONDS_PER_YEAR - 123_456_789n,
       countryCode: 704n,
       kycTier: 3n,
       expiresAt: now + 987_654_321n,
@@ -67,7 +67,7 @@ describe('I1: private attributes never reach public state', () => {
       birthTimestamp: 100_000n,
       countryCode: 704n,
       kycTier: 3n,
-      expiresAt: BigInt(sim.time) + 1_000_000n,
+      expiresAt: BigInt(sim.time) + 1_000n,
     };
     const a = makeHolder(7, attrs);
     const b = makeHolder(8, attrs);

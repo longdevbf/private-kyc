@@ -7,7 +7,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   Sim, makeIssuer, makeHolder, standardAttrs, ageAtLeast,
-  ADMIN_SECRET, VERIFIER_A, MS_PER_YEAR,
+  ADMIN_SECRET, VERIFIER_A, SECONDS_PER_YEAR,
 } from '../setup.js';
 
 describe('I3: expired credentials cannot be presented', () => {
@@ -18,10 +18,10 @@ describe('I3: expired credentials cannot be presented', () => {
 
     const now = BigInt(sim.time);
     const holder = makeHolder(42, {
-      birthTimestamp: now - 30n * MS_PER_YEAR,
+      birthTimestamp: now - 30n * SECONDS_PER_YEAR,
       countryCode: 704n,
       kycTier: 3n,
-      expiresAt: now - 1n, // expired one millisecond ago
+      expiresAt: now - 1n, // expired one second ago
     });
     await sim.issue(issuer, holder);
 
@@ -37,10 +37,10 @@ describe('I3: expired credentials cannot be presented', () => {
 
     const now = BigInt(sim.time);
     const holder = makeHolder(42, {
-      birthTimestamp: now - 30n * MS_PER_YEAR,
+      birthTimestamp: now - 30n * SECONDS_PER_YEAR,
       countryCode: 704n,
       kycTier: 3n,
-      expiresAt: now + 3_600_000n, // valid for one hour
+      expiresAt: now + 3_600n, // valid for one hour
     });
     await sim.issue(issuer, holder);
 
@@ -48,20 +48,20 @@ describe('I3: expired credentials cannot be presented', () => {
     await sim.present(holder, issuer, VERIFIER_A, ageAtLeast(18n));
 
     // Two hours later it must not be.
-    sim.advance(2 * 3_600_000);
+    sim.advance(2 * 3_600);
     await expect(
       sim.present(holder, issuer, VERIFIER_A, ageAtLeast(18n)),
     ).rejects.toThrow(/expired/);
   });
 
-  it('accepts a credential expiring one millisecond in the future', async () => {
+  it('accepts a credential expiring one second in the future', async () => {
     const sim = await Sim.deploy(ADMIN_SECRET);
     const issuer = makeIssuer(1n);
     await sim.registerIssuer(ADMIN_SECRET, issuer);
 
     const now = BigInt(sim.time);
     const holder = makeHolder(42, {
-      birthTimestamp: now - 30n * MS_PER_YEAR,
+      birthTimestamp: now - 30n * SECONDS_PER_YEAR,
       countryCode: 704n,
       kycTier: 3n,
       expiresAt: now + 1n,
