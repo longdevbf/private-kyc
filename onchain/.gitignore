@@ -1,0 +1,30 @@
+# Testnet wallet seeds. These control real tNIGHT and tDUST; committing
+# one hands its funds to anyone who reads the repo.
+.seed.*
+
+# Build output: proving keys, verifier keys, zkIR. Large, machine-specific,
+# and reproducible with `npm run build`.
+managed/
+
+node_modules/
+
+# The encrypted private-state store midnight-js keeps on disk. Holder
+# secrets live here, and it is per-machine state rather than source. The
+# directory name is the library's own default, from
+# midnight-js-level-private-state-provider (MN_LDB_DEFAULT_DB_NAME).
+.private-state/
+midnight-level-db/
+
+# deployments/ is deliberately NOT ignored. Those files are the evidence
+# that something was deployed, and the web UI treats them as the only such
+# evidence, so they belong in the repository.
+
+# Serialized wallet state, so a restart does not rescan the chain. Derived
+# entirely from public chain data and holds no keys -- but it does reveal
+# which coins are this wallet's, so it stays out of the repository.
+.wallet-cache.*.json
+
+# Holder wallets for the on-chain demo. These are SECRETS: whoever has one
+# can present that credential. Persisted because losing one strands its
+# leaf on chain forever -- unpresentable and unrevocable.
+.holders.*.json

@@ -1,0 +1,53 @@
+{
+  "name": "private-credential-lifecycle-onchain",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Deployable (language 0.23) port of the credential lifecycle engine, plus its deployment driver",
+  "//": "This is a SEPARATE npm package with its own node_modules on purpose. The reference contract in ../contracts needs compact-runtime 0.19.0; this one needs 0.16.0, which is what compiler 0.31.1 generates against and what every live network runs. Two versions of the same package cannot coexist in one dependency tree, so they get one tree each.",
+  "scripts": {
+    "build": "bash build.sh",
+    "build:fast": "SKIP_ZK=1 bash build.sh",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "address": "tsx src/address.ts",
+    "dust": "tsx src/register-dust.ts",
+    "deploy": "tsx src/deploy.ts",
+    "service": "tsx src/service.ts",
+    "lifecycle": "tsx src/lifecycle-demo.ts",
+    "provision": "tsx src/provision.ts"
+  },
+  "dependencies": {
+    "@midnight-ntwrk/compact-runtime": "0.16.0",
+    "@midnight-ntwrk/midnight-js-contracts": "4.1.1",
+    "@midnight-ntwrk/midnight-js-http-client-proof-provider": "4.1.1",
+    "@midnight-ntwrk/midnight-js-indexer-public-data-provider": "4.1.1",
+    "@midnight-ntwrk/midnight-js-level-private-state-provider": "4.1.1",
+    "@midnight-ntwrk/midnight-js-network-id": "4.1.1",
+    "@midnight-ntwrk/midnight-js-node-zk-config-provider": "4.1.1",
+    "@midnight-ntwrk/midnight-js-types": "4.1.1",
+    "@midnight-ntwrk/midnight-js-utils": "4.1.1",
+    "@midnight-ntwrk/wallet": "5.0.0",
+    "@midnight-ntwrk/wallet-api": "5.0.0",
+    "@midnight-ntwrk/zswap": "4.0.0",
+    "@midnightntwrk/wallet-sdk": "^1.2.0",
+    "@midnightntwrk/wallet-sdk-abstractions": "^2.1.0",
+    "@midnightntwrk/wallet-sdk-address-format": "^3.1.2",
+    "@midnightntwrk/wallet-sdk-dust-wallet": "^4.2.0",
+    "@midnightntwrk/wallet-sdk-facade": "^4.1.0",
+    "@midnightntwrk/wallet-sdk-hd": "^3.0.3",
+    "@midnightntwrk/wallet-sdk-shielded": "^3.0.2",
+    "@midnightntwrk/wallet-sdk-unshielded-wallet": "^3.1.0",
+    "rxjs": "^7.8.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "tsx": "^4.23.12",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  },
+  "overrides": {
+    "@midnight-ntwrk/onchain-runtime-v3": "3.0.0"
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "network": "preview",
+  "networkId": "preview",
+  "contractAddress": "620f6fd548c984f375f319f77d305258826f91cf26cf628def51c311081dbeab",
+  "txId": "00fcca03211f0aca46b364c07b7d964a1abe91e145fcae138695ea970c03fcc043",
+  "txHash": "6c69632bddad8522edc10b50726c6276192f7fc8602011bd888b6e52e3644238",
+  "blockHeight": "646559",
+  "deployedAt": "2026-08-30T13:25:22.227Z",
+  "deployMs": 21847,
+  "compiler": "0.31.1",
+  "languageVersion": "0.23.0",
+  "compactRuntime": "0.16.0",
+  "midnightJs": "4.1.1",
+  "proofServer": "8.1.0",
+  "node": "https://rpc.preview.midnight.network",
+  "indexer": "https://indexer.preview.midnight.network/api/v4/graphql"
+}
