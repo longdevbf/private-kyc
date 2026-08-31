@@ -190,6 +190,14 @@ export async function runViaWallet(
   try {
     await wallet.submitTransaction(balanced.tx);
   } catch (e) {
+    // Send what the wallet built to the backend to be described. The
+    // failure that motivated this is invisible from either side alone: the
+    // transaction handed to the wallet is known good -- the same bytes were
+    // accepted when the demo's own wallet balanced them -- so whatever the
+    // node objected to was introduced during balancing, and nothing showed
+    // what that was. Best effort: a diagnostic must never replace the real
+    // error, so this cannot throw and cannot change the message.
+    void post('/api/chain/inspect', { txHex: balanced.tx }).catch(() => undefined);
     return { ok: false, reason: `the wallet refused to submit it: ${msg(e)}` };
   }
 

@@ -110,7 +110,37 @@ describe('runViaWallet', () => {
 
     expect(result.ok).toBe(false);
     expect(result.reason).toMatch(/refused to submit/);
-    expect(calls.map((c) => c.path)).toEqual(['/api/chain/prepare']);
+
+    // The property is "nothing was committed", which means no confirm --
+    // not "no requests were made". A diagnostic read is allowed here and a
+    // write is not, so this asserts on confirm specifically rather than on
+    // the request count, which would break every time a diagnostic is added.
+    expect(calls.map((c) => c.path)).not.toContain('/api/chain/confirm');
+  });
+
+  it('sends what the wallet built to be described when submission fails', async () => {
+    global.fetch = backend(PREPARED) as never;
+    const wallet = goodWallet();
+    wallet.submitTransaction = vi.fn(async () => {
+      throw new Error('Invalid Transaction: Custom error: 182');
+    });
+
+    await runViaWallet(wallet, { action: 'present' });
+    // Give the fire-and-forget diagnostic a turn to run.
+    await Promise.resolve();
+
+    const inspect = calls.find((c) => c.path === '/api/chain/inspect');
+    expect(inspect).toBeDefined();
+    // The BALANCED transaction, not the one that was handed to the wallet:
+    // the prepared bytes are already known good, so they explain nothing.
+    expect(inspect!.body).toEqual({ txHex: 'deadbeef-balanced' });
+  });
+
+  it('never describes anything when the submission succeeds', async () => {
+    global.fetch = backend(PREPARED) as never;
+    await runViaWallet(goodWallet(), { action: 'present' });
+    await Promise.resolve();
+    expect(calls.map((c) => c.path)).not.toContain('/api/chain/inspect');
   });
 
   it('never reaches the wallet when proving fails', async () => {

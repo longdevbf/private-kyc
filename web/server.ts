@@ -432,6 +432,22 @@ app.post('/api/chain/confirm', async (req, res) => {
   return proxy(res, '/confirm', req.body ?? {});
 });
 
+/**
+ * Describe a transaction a browser wallet built, without submitting it.
+ *
+ * A wallet's submission was refused with `Custom error: 182` while the
+ * identical prepared transaction was accepted when this project's own
+ * wallet balanced it. The one thing nobody could see was what the wallet
+ * produced in between, so the page sends it here when a submission fails
+ * and the chain service prints what it contains.
+ */
+app.post('/api/chain/inspect', async (req, res) => {
+  if (engine.mode !== 'onchain') {
+    return res.status(400).json({ ok: false, reason: 'not on chain' });
+  }
+  return proxy(res, '/inspect', req.body ?? {});
+});
+
 // --- Which engine is driving -----------------------------------------
 
 app.get('/api/engine', async (_req, res) => {

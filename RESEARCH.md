@@ -1400,3 +1400,63 @@ that was done, and it narrowed a vague failure to two candidates in one
 step. What it could not do is assign blame — that took running the same
 bytes through a second implementation, which is worth reaching for
 whenever a failure sits on a boundary between two pieces of software.
+
+#### H.13a Resolved: the wallet's fee intent expires before preview can include it
+
+The missing picture was what the wallet produced *after* balancing, so the
+page was made to post that back for description (`/api/chain/inspect`,
+read-only — it deserializes and prints, it never submits). Two failed
+attempts, and both say the same thing:
+
+```
+[inspect] bytes 8688  sealed
+  segment 1      ttl in    3s   dustActions: yes   actions: 0
+  segment 54726  ttl in 3566s   dustActions: no    actions: 1
+[inspect] bytes 8689  sealed
+  segment 1      ttl in    4s   dustActions: yes   actions: 0
+  segment 20724  ttl in 3568s   dustActions: no    actions: 1
+```
+
+Segment 1 is the wallet's own DUST fee intent. Working back from the call
+intent, whose TTL this project sets to prepare + 3600s:
+
+| | run 1 | run 2 |
+|---|---|---|
+| wallet fee intent expires | prepare + 37s | prepare + 36s |
+| contract call intent expires | prepare + 3600s | prepare + 3600s |
+| fee intent life left when inspected | 3s | 4s |
+
+**The wallet gives its fee intent roughly thirty seconds.** Preview takes
+**30–118 seconds to include a transaction** — measured across every
+lifecycle run recorded in the README. The intent is therefore expired, or
+within a few seconds of it, by the time the node validates the submission,
+which is exactly `228 IntentTtlExpired`, the code that replaced the opaque
+182 this node reports.
+
+That also explains why this project's own path never sees it: both of its
+intents carry the same one-hour TTL —
+
+```
+[ttl] service balanceTx segment 45186: now + 3591s   (the contract call)
+[ttl] service balanceTx segment 1:     now + 3594s   (the fee intent)
+```
+
+— and an hour comfortably outlives a two-minute inclusion.
+
+**Nothing in this repository can fix it.** The expiring intent is
+constructed inside the extension, after the transaction leaves here and
+before it reaches the node. The prepared transaction is not at fault, which
+was established separately by submitting the identical bytes through this
+project's wallet and having the chain accept them.
+
+**What it is worth taking from this.** A TTL that is generous on a fast
+network is a bug on a slow one, and preview is slow: a value chosen for
+mainnet-like inclusion silently becomes a hard failure at 30 seconds a
+block. Any TTL a component picks for itself should be compared against the
+slowest network it will run on, not the fastest.
+
+And methodologically: three rounds of reasoning about this failure produced
+three plausible stories and no answer. What produced the answer was making
+the invisible artefact visible — 40 lines that deserialize a transaction
+and print its intents. When a failure sits on a boundary between two
+programs, build the window before theorising further.

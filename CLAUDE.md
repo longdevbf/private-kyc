@@ -240,7 +240,9 @@ Bản port đã build full ZK, đã deploy lên **preview**, và cả chín bư�
 
 Việc còn lại: ví trình duyệt ký trực tiếp lời gọi contract. Đường đó **đã chạy với extension thật** (1AM) và qua được bốn trên năm bước — kết nối, đọc số dư, nhận transaction đã prove, balance xong. **Bước submit bị node từ chối `Custom error: 182`** (mã replay protection).
 
-Lỗi không nằm ở repo, và điều đó đã được chứng minh chứ không phải suy đoán: đúng transaction đó, cho ví của service balance rồi submit thì chain **nhận** (tx `00107806…`), và indexer cho thấy không có gì từ ví trình duyệt chạm tới contract. Nghi ngờ chính là đường **sponsored DUST** của ví đó.
+**Nguyên nhân đã đo được, không còn là nghi ngờ:** ví đặt TTL cho intent trả phí của nó khoảng **30 giây**, trong khi preview mất **30–118 giây** để đưa giao dịch vào block — nên intent hết hạn trước khi node kiểm tra. Lời gọi contract trong cùng giao dịch đó mang TTL 1 tiếng. Bằng chứng ở RESEARCH.md §H.13a, đọc được nhờ route `/api/chain/inspect` (chỉ mô tả, không submit).
+
+Repo không sửa được: intent hết hạn được dựng bên trong extension. Đúng transaction đó cho ví của service balance thì chain **nhận** (tx `00107806…`).
 
 Cách nói đúng: "đường trình duyệt chạy tới bước submit, và một ví từ chối ở đó" — **không** phải "wallet integration đã xong", cũng **không** phải "chưa từng thử".
 

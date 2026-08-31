@@ -26,6 +26,7 @@ import { randomBytes } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import * as ledger from '@midnight-ntwrk/ledger-v8';
 import { ChainClient, readDeployment, type TxReceipt } from './chain.js';
 import {
   SECONDS_PER_DAY,
@@ -646,6 +647,8 @@ const server = createServer(async (req, res) => {
         }
         case '/prepare':
           return send(200, { ok: true, ...(await doPrepare(body)) });
+        case '/inspect':
+          return send(200, { ok: true, ...inspectTransaction(body.txHex) });
         case '/confirm':
           return send(200, doConfirm(body));
       }
@@ -665,3 +668,58 @@ server.listen(PORT, () => {
   console.log(`fee payer          ${client.walletAddress}`);
   console.log('\nEvery call here produces a real proof and a real transaction.');
 });
+
+/**
+ * Describe a serialized transaction, whoever built it.
+ *
+ * This exists because of a failure that could not be diagnosed from either
+ * end alone. A browser wallet balanced a transaction from /prepare and its
+ * submission was refused with `Custom error: 182` -- replay protection.
+ * The prepared transaction was known good: this service's own wallet
+ * balanced and submitted the identical bytes and the chain accepted them.
+ * So the thing nobody had looked at was what the WALLET produced after
+ * balancing, and there was no way to look at it.
+ *
+ * Now there is. The page posts the balanced hex here when a submission
+ * fails, and the intents it carries -- how many, at which segment ids,
+ * with which TTLs -- are printed and returned.
+ *
+ * Read-only. It deserializes and reports; it never submits.
+ */
+function inspectTransaction(txHex: unknown): Record<string, unknown> {
+  if (typeof txHex !== 'string' || !/^[0-9a-fA-F]+$/.test(txHex)) {
+    return { error: 'txHex must be a hex string' };
+  }
+  const raw = Uint8Array.from(Buffer.from(txHex, 'hex'));
+
+  // A balanced transaction is sealed (Binding); one straight out of
+  // /prepare is not (PreBinding). Which one this is, is itself worth
+  // knowing, so both are tried and the successful marker is reported.
+  const attempts: Array<['binding' | 'pre-binding', string]> = [
+    ['binding', 'sealed — signed and cryptographically bound'],
+    ['pre-binding', 'unsealed — proved but not yet bound'],
+  ];
+
+  for (const [marker, description] of attempts) {
+    try {
+      const tx: any = ledger.Transaction.deserialize('signature', 'proof', marker, raw);
+      const now = Date.now();
+      const intents = [...((tx.intents as Map<number, any>) ?? new Map()).entries()].map(
+        ([segment, intent]) => ({
+          segment,
+          ttl: intent.ttl.toISOString(),
+          ttlInSec: Math.round((intent.ttl.getTime() - now) / 1000),
+          actions: intent.actions?.length ?? 0,
+          hasDustActions: Boolean(intent.dustActions),
+          hasGuaranteedOffer: Boolean(intent.guaranteedUnshieldedOffer),
+        }),
+      );
+      const summary = { bytes: raw.length, binding: marker, description, intents };
+      console.log(`[inspect] ${JSON.stringify(summary)}`);
+      return summary;
+    } catch {
+      // Try the other marker before giving up.
+    }
+  }
+  return { error: 'could not deserialize as a transaction under either binding' };
+}
