@@ -1460,3 +1460,19 @@ three plausible stories and no answer. What produced the answer was making
 the invisible artefact visible — 40 lines that deserialize a transaction
 and print its intents. When a failure sits on a boundary between two
 programs, build the window before theorising further.
+
+**Corroboration from outside this repository.** Midnight's own DUST
+sponsorship walkthrough gives the recommended window explicitly — *"a
+reasonable TTL should be set for both user and sponsor balancing steps
+(15–30 minutes)"* — and names the exact failure that follows from getting
+it wrong: *"transaction might expire before submission."* It also describes
+why a sponsored flow needs the longer window: balancing is split across two
+parties, the user excluding DUST from `tokenKindsToBalance` and the sponsor
+adding the fee intent afterwards with `balanceFinalizedTransaction`, so the
+intent has to survive two rounds of signing before it reaches a node.
+
+Measured here: about **30 seconds**, against a recommendation of 15–30
+minutes. That is thirty to sixty times short, in a flow whose own
+documentation warns about this failure by name.
+
+Source: `dev.to/wilsonhoe/dust-sponsorship-on-midnight-how-one-wallet-pays-fees-for-another`
