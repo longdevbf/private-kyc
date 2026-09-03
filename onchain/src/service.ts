@@ -630,6 +630,25 @@ const server = createServer(async (req, res) => {
   const path = url.pathname;
 
   try {
+    // Liveness, answered from values fixed at startup.
+    //
+    // Separate from /state on purpose. /state reads contract state through
+    // the indexer -- a round trip to a shared testnet, measured here at
+    // between 6 and 24 seconds -- so using it to ask "is the service
+    // there?" makes the answer depend on how busy someone else's server
+    // is. That produced a UI that reported a running service as absent,
+    // twice, each time fixed by guessing a larger timeout. This answers in
+    // microseconds and cannot time out for a reason unrelated to the
+    // question being asked.
+    if (req.method === 'GET' && path === '/health') {
+      return send(200, {
+        ok: true,
+        network: cfg.name,
+        contractAddress: client.contractAddress,
+        walletAddress: client.walletAddress,
+      });
+    }
+
     if (req.method === 'GET' && path === '/state') return send(200, await fullState());
 
     if (req.method === 'POST') {

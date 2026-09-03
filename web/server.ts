@@ -85,14 +85,21 @@ async function chain(path: string, body?: unknown): Promise<any> {
 /** Whether the on-chain service is answering, and on which network. */
 async function chainProbe(): Promise<{ available: boolean; network?: string; contractAddress?: string; walletAddress?: string; reason?: string }> {
   try {
+    // /health, not /state.
+    //
+    // This probe answers one question -- is the service there -- and it
+    // used to ask it by fetching the whole demo state, which the service
+    // builds by reading contract state through the indexer. That is a
+    // round trip to a shared testnet, and it has been measured between 6
+    // and 24 seconds depending on nothing this project controls. So the
+    // probe kept timing out against a service that was running, and the
+    // UI disabled the on-chain option and gave a reason that was false.
+    // Raising the timeout was tried twice, 4s then 20s, and the second
+    // failed the same way at 23.8s: the number was never the problem.
+    // /health returns three values fixed at startup and touches nothing.
     const s = await Promise.race([
-      chain('/state'),
-      // 20s, not 4s. The service answers /state by reading contract state
-      // through the indexer, which is a network round trip on a shared
-      // testnet -- 4 seconds was tight enough that a healthy service was
-      // reported as absent, and the UI then disabled the on-chain option
-      // for a reason that was not true.
-      new Promise((_r, rej) => setTimeout(() => rej(new Error('timeout')), 20_000)),
+      chain('/health'),
+      new Promise((_r, rej) => setTimeout(() => rej(new Error('timeout')), 5_000)),
     ] as const) as any;
     return {
       available: true,

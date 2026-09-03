@@ -198,11 +198,17 @@ body {
   display: flex;
   align-items: center;
   gap: 18px;
-  padding: 0 36px;
+  padding: 8px 36px;
   min-height: 76px;
   border-bottom: 1px solid var(--line);
   background: var(--g-1);
   flex-wrap: wrap;
+  /* `.main` is a flex column, so this shrinks by default. It also wraps,
+     and once the stats spill onto a second row the two combine badly: the
+     bar is squeezed back to its 76px minimum and the row that wrapped is
+     clipped, leaving chips cut in half along the top edge. Same failure the
+     note on `.work > *` describes, on a different element. */
+  flex: 0 0 auto;
 }
 @media (max-width: 880px) { .topbar { padding: 12px 16px; gap: 12px; } }
 
